@@ -215,7 +215,7 @@ static int __further_migrate_eh_slot(
 				int depth) {
 	struct eh_segment *next_seg;
 	struct kv *kv = (struct kv *)eh_slot_kv_addr(slot_val);
-	u64 fingerprint = eh_slot_fingerprint16(slot_val);
+	u64 fingerprint;
 	EH_BUCKET_SLOT slot, new_slot, *new_addr;
 	struct eh_bucket *bucket;
 	EH_BUCKET_HEADER header;
@@ -250,10 +250,9 @@ further_next_migrate_eh_slot :
 
 	bucket_id = eh_seg2_bucket_idx(split.hashed_key, split.depth + 1);
 
-	if (eh_seg_low(header)) {
-		dest = (struct eh_four_segment *)eh_next_high_seg(header);
-		seg2 = &dest->two_seg[seg_id];
-	} else {
+	if (eh_seg_low(header))
+		seg2 = (struct eh_two_segment *)eh_next_high_seg(header);
+	else {
 		seg2 = add_eh_new_segment(&split, seg2, kv, 1);
 
 		if ((void *)seg2 == MAP_FAILED)
