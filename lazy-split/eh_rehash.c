@@ -75,7 +75,7 @@ struct eh_two_segment *add_eh_new_segment(
 	if (unlikely((void *)(split->dest_seg) == MAP_FAILED))
 		return (struct eh_two_segment *)MAP_FAILED;
 	
-	s_ent = append_split_record(&rp, split, 0, high_prio);
+	s_ent = append_split_record(&rp, split, high_prio);
 
 	if (unlikely((void *)s_ent == MAP_FAILED))
 		ret_seg = (struct eh_two_segment *)MAP_FAILED;
@@ -511,8 +511,10 @@ static struct eh_two_segment *analyze_eh_split_entry(
 						struct eh_split_context *split,
                     	int high_prio) {
 	uintptr_t t_ent, d_ent;
+	struct eh_two_segment *ret_seg;
 
 	t_ent = READ_ONCE(split_ent->target);
+	d_ent = split_ent->destination;
 
 	if (!high_prio) {
         if (unlikely(t_ent == INVALID_EH_SPLIT_TARGET))
@@ -523,23 +525,22 @@ static struct eh_two_segment *analyze_eh_split_entry(
     }
 
     split->depth = eh_split_target_depth(t_ent);// below 48
-
-    if (unlikely(eh_split_incomplete_target(t_ent))) {
-		split->hashed_key = split_ent->hashed_key;
-        return (struct eh_two_segment *)eh_split_target_seg(t_ent);
-    }
-
-	d_ent = split_ent->destination;
-
 	split->target_seg = (struct eh_segment *)eh_split_target_seg(t_ent);
     split->dest_seg = (struct eh_four_segment *)eh_split_dest_seg(d_ent);
 
-	prefetch_eh_split_bucket(split->target_seg, split->dest_seg, 0);
+	if (unlikely(eh_split_incomplete_target(t_ent))) {
+		ret_seg = (struct eh_two_segment *)split->dest_seg;
+		split->incomplete = 1;
+	} else {
+		prefetch_eh_split_bucket(split->target_seg, split->dest_seg, 0);
+		ret_seg = NULL;
+		split->incomplete = 0;
+	}
 
-    split->hashed_key = eh_split_prefix(t_ent, d_ent, split->depth);
+	split->hashed_key = eh_split_prefix(t_ent, d_ent, split->depth);
 	split->recheck = eh_split_target_need_recheck(t_ent);
 
-	return NULL;
+	return ret_seg;
 }
 
 int eh_split(struct eh_split_entry *split_ent, int high_prio) {
@@ -548,7 +549,7 @@ int eh_split(struct eh_split_entry *split_ent, int high_prio) {
     struct eh_two_segment *seg2;
     struct eh_dir *dir, *dir_head;
 	RECORD_POINTER rp;
-    int g_depth, incomplete = 0, lack = 0;
+    int g_depth, lack = 0;
 
     seg2 = analyze_eh_split_entry(split_ent, &split, high_prio);
 
@@ -558,11 +559,28 @@ int eh_split(struct eh_split_entry *split_ent, int high_prio) {
     contex = get_eh_context(split.hashed_key);
     c_val = READ_ONCE(*contex);
 
+	dir_head = head_of_eh_dir(c_val);
     g_depth = eh_depth(c_val);
-    dir_head = head_of_eh_dir(c_val);
+
+	if (unlikely(g_depth <= split.depth)) {
+		dir_head = expand_eh_directory(contex, dir_head, g_depth, split.depth + 1);
+
+		if (unlikely((void *)dir_head == MAP_FAILED))
+			goto lack_memory_eh_split;
+
+		if (likely(dir_head))
+			g_depth = split.depth + 1;
+		else {
+			if (g_depth != split.depth || split.incomplete)
+				goto eh_split_for_next;
+				
+			dir_head = head_of_eh_dir(c_val);
+		}
+	}
+
     dir = base_slot_of_eh_dir(dir_head, split.hashed_key, split.depth, g_depth);
 
-	if (unlikely(seg2))
+	if (unlikely(split.incomplete))
 		goto dir_update_eh_split;
 
     prefech_r0(dir);
@@ -579,20 +597,7 @@ int eh_split(struct eh_split_entry *split_ent, int high_prio) {
         goto lack_memory_eh_split;
 
 dir_update_eh_split :
-	if (unlikely(g_depth <= split.depth)) {
-		dir_head = expand_eh_directory(contex, dir_head, g_depth, split.depth + 1);
-
-		if (unlikely((void *)dir_head == MAP_FAILED))
-			goto lack_memory_eh_split;
-
-		if (unlikely(dir_head == NULL))
-			goto eh_incomplete_split_for_next;
-
-		g_depth = split.depth + 1;
-		dir = base_slot_of_eh_dir(dir_head, split.hashed_key, split.depth, g_depth);
-	}
-
-	if (unlikely(split_eh_directory(dir, 
+	if (unlikely(g_depth == split.depth || split_eh_directory(dir, 
 			&seg2->seg[0], &seg2->seg[1], split.depth, g_depth) == -1))
 		goto eh_incomplete_split_for_next;
 
@@ -604,12 +609,13 @@ lack_memory_eh_split :
 
 	if (seg2) {
 	eh_incomplete_split_for_next :
-		split.target_seg = (struct eh_segment *)seg2;
-		incomplete = 1;
+		split.dest_seg = (struct eh_four_segment *)seg2;
+		split.recheck = 0;
+		split.incomplete = 1;
 	}
 
 eh_split_for_next :
-	split_ent = append_split_record(&rp, &split, incomplete, 1);
+	split_ent = append_split_record(&rp, &split, 1);
 
 	if (unlikely((void *)split_ent == MAP_FAILED)) {
 		if (lack++ == 10)

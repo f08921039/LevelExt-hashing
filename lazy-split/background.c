@@ -74,22 +74,25 @@ static void free_reclaim_chunk(
 void free_reclaim_memory() {
     RECORD_POINTER chunk_rp[PER_THREAD_OF_BACKGROUND];
     u64 epoch, max_epoch = 0, min_epoch = MAX_LONG_INTEGER;
+    struct tls_context *tls;
     int i, background_range, background_range_end;
     
     background_range = TLS_SCAN_START(thread_id);
     background_range_end = TLS_SCAN_END(thread_id);
 
     for (i = 0; i < THREAD_NUM + BACKGROUNG_THREAD_NUM; ++i) {
-        if (i == thread_id)
+        tls = tls_context_of_tid(i);
+        
+        if (tls == tls_context_itself())
             continue;
 
         if (i >= background_range && i < background_range_end) {
             chunk_rp[i - background_range] = 
-                    READ_ONCE(tls_context_array[i].chunk_reclaim_tail);
+                    READ_ONCE(tls->chunk_reclaim_tail);
             acquire_fence();
         }
 
-        epoch = READ_ONCE(tls_context_array[i].epoch);
+        epoch = READ_ONCE(tls->epoch);
 
         if (epoch == MAX_LONG_INTEGER)
             continue;
@@ -104,35 +107,41 @@ void free_reclaim_memory() {
     if (unlikely(min_epoch == MAX_LONG_INTEGER))
         return;
 
-    if (unlikely(tls_context->epoch == min_epoch)) {
+    tls = tls_context_itself();
+
+    if (unlikely(tls->epoch == min_epoch)) {
         release_fence();
-        WRITE_ONCE(tls_context->epoch, min_epoch + thread_id - THREAD_NUM);
-    } else if (tls_context->epoch < min_epoch) {
-        free_reclaim_page(tls_context, tls_context->page_reclaim_tail);
-        free_reclaim_chunk(tls_context, tls_context->chunk_reclaim_tail);
+        WRITE_ONCE(tls->epoch, min_epoch + thread_id - THREAD_NUM);
+    } else if (tls->epoch < min_epoch) {
+        free_reclaim_page(tls, tls->page_reclaim_tail);
+        free_reclaim_chunk(tls, tls->chunk_reclaim_tail);
 
         for (i = background_range; i < background_range_end; ++i) {
             if (chunk_rp[i - background_range] != INVALID_RECORD_POINTER) {
-                struct tls_context *tls = &tls_context_array[i];
+                tls = tls_context_of_tid(i);
                 free_reclaim_chunk(tls, chunk_rp[i - background_range]);
             }
         }
 
         release_fence();
-        WRITE_ONCE(tls_context->epoch, max_epoch);
+        tls = tls_context_itself();
+        WRITE_ONCE(tls->epoch, max_epoch);
     }
 }
 #else
 void free_reclaim_memory() {
     RECORD_POINTER chunk_rp[PER_THREAD_OF_BACKGROUND];
     u64 epoch, max_epoch = 0, min_epoch = MAX_LONG_INTEGER;
+    struct tls_context *tls;
     int i;
 
     for (i = 0; i < THREAD_NUM; ++i) {
-        chunk_rp[i] = READ_ONCE(tls_context_array[i].chunk_reclaim_tail);
+        tls = tls_context_of_tid(i);
+
+        chunk_rp[i] = READ_ONCE(tls->chunk_reclaim_tail);
         acquire_fence();
 
-        epoch = READ_ONCE(tls_context_array[i].epoch);
+        epoch = READ_ONCE(tls->epoch);
 
         if (epoch == MAX_LONG_INTEGER)
             continue;
@@ -144,19 +153,22 @@ void free_reclaim_memory() {
             min_epoch = epoch;
     }
 
+    tls = tls_context_itself();
+
     if (likely(min_epoch != MAX_LONG_INTEGER) && 
-                        tls_context->epoch < min_epoch) {
-        free_reclaim_page(tls_context, tls_context->page_reclaim_tail);
-        free_reclaim_chunk(tls_context, tls_context->chunk_reclaim_tail);
+                        tls->epoch < min_epoch) {
+        free_reclaim_page(tls, tls->page_reclaim_tail);
+        free_reclaim_chunk(tls, tls->chunk_reclaim_tail);
 
         for (i = 0; i < THREAD_NUM; ++i) {
             if (chunk_rp[i] != INVALID_RECORD_POINTER) {
-                struct tls_context *tls = &tls_context_array[i];
+                tls = tls_context_of_tid(i);
                 free_reclaim_chunk(tls, chunk_rp[i]);
             }
         }
 
-        tls_context->epoch = max_epoch;
+        tls = tls_context_itself();
+        tls->epoch = max_epoch;
     }
 }    
 #endif
@@ -170,13 +182,12 @@ static void process_hp_split_entry() {
     int i;
 
     for (i = TLS_SCAN_START(thread_id); i < TLS_SCAN_END(thread_id); ++i) {
-        tls = &tls_context_array[i];
+        tls = tls_context_of_tid(i);
         tail = READ_ONCE(tls->hp_split_tail);
+        head = tls->hp_split;
 
         if (tail == INVALID_RECORD_POINTER)
             continue;
-
-        head = tls->hp_split;
     
     eh_hp_split_for_each_thread :
         t_page = (struct record_page *)page_of_record_pointer(tail);
@@ -208,11 +219,13 @@ static void process_hp_split_entry() {
         tls->hp_split = tail;
     }
 
-    if (tls != tls_context) {
-        tls = tls_context;
+    if (tls != tls_context_itself()) {
+        tls = tls_context_itself();
         tail = tls->hp_split_tail;
         head = tls->hp_split;
-        goto eh_hp_split_for_each_thread;
+
+        if (tail != INVALID_RECORD_POINTER)
+            goto eh_hp_split_for_each_thread;
     }
 }
 
@@ -228,7 +241,7 @@ re_process_lp_split_entry :
     repeat = 0;
 
     for (i = TLS_SCAN_START(thread_id); i < TLS_SCAN_END(thread_id); ++i) {
-        tls = &tls_context_array[i];
+        tls = tls_context_of_tid(i);
         tail = READ_ONCE(tls->lp_split_tail);
 
         if (tail == INVALID_RECORD_POINTER)
@@ -282,12 +295,15 @@ re_process_lp_split_entry :
         }
     }
 
-    if (tls != tls_context) {
-        tls = tls_context;
+    if (tls != tls_context_itself()) {
+        tls = tls_context_itself();
         tail = tls->lp_split_tail;
-        head_ptr = &tls->lp_split;
-        hp = 0;
-        goto eh_split_for_each_thread;
+
+        if (tail != INVALID_RECORD_POINTER) {
+            head_ptr = &tls->lp_split;
+            hp = 0;
+            goto eh_split_for_each_thread;
+        }
     }
 
     if (repeat)

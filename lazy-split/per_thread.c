@@ -16,7 +16,7 @@ int prepare_all_tls_context() {
         return -1;
 
     for (i = 0; i < THREAD_NUM + BACKGROUNG_THREAD_NUM; ++i) {
-        tls = &tls_context_array[i];
+        tls = tls_context_of_tid(i);
 
         tls->epoch = MAX_LONG_INTEGER;
         tls->lp_split_tail = tls->hp_split_tail = INVALID_RECORD_POINTER;
@@ -79,7 +79,7 @@ void init_tls_context(int tid) {
 struct eh_split_entry *append_split_record(
                     RECORD_POINTER *new_pointer,
                     struct eh_split_context *split, 
-                    int incomplete, int high_prio) {
+                    int high_prio) {
     RECORD_POINTER record_ptr = (high_prio ? 
                 tls_context->hp_split_tail : tls_context->lp_split_tail);
     struct eh_split_entry *ret_ent;
@@ -102,10 +102,7 @@ struct eh_split_entry *append_split_record(
 
     ret_ent = &page->s_ent[ent_num];
 
-    if (unlikely(incomplete))
-        init_eh_split_incomplete_entry(ret_ent, split);
-    else
-        init_eh_split_entry(ret_ent, split);
+    init_eh_split_entry(ret_ent, split);
 
     return ret_ent;
 }

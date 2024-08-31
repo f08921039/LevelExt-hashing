@@ -25,7 +25,7 @@ struct eh_dir *expand_eh_directory(
     if (unlikely((void *)new_dir_head == MAP_FAILED))
         return (struct eh_dir *)MAP_FAILED;
 
-    old_dir_end = &dir_head[MUL_2(1UL, old_depth - EH_GROUP_BITS)];
+    old_dir_end = &dir_head[EXP_2(old_depth - EH_GROUP_BITS)];
 
     dir_new = new_dir_head;
     dir_old = dir_head;
@@ -44,7 +44,7 @@ struct eh_dir *expand_eh_directory(
 
         depth = eh_dir_depth(header);
 
-        num = MUL_2(1UL, new_depth - depth);
+        num = EXP_2(new_depth - depth);
         
         for (i = 0; i < num; ++i)
             dir_new[i].header = header;

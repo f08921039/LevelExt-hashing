@@ -357,8 +357,11 @@ int put_eh_seg_kv(
 	bucket = &low_seg->bucket[bucket_id];
 	prefetch_eh_bucket_head(bucket, low_seg);
 	half_bucket = &low_seg->bucket[0];
+
 	record_bucket_initial_traversal(&record[0]);
+
 	split.hashed_key = hashed_key;
+	split.incomplete = 0;
 
 put_eh_next_seg_kv :
 	fingerprint = hashed_key_fingerprint18(hashed_key, l_depth);

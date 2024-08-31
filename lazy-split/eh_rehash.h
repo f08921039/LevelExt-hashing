@@ -44,8 +44,10 @@ extern  "C" {
 #define EH_SPLIT_DEST_PREFIX_47_BIT	(EH_SPLIT_DEST_PREFIX_32_BIT + 15)
 
 
-#define eh_split_target_need_recheck(target)   ((target) & SHIFT(EH_SPLIT_TARGET_RECHECK_BIT))
-#define eh_split_incomplete_target(target)   ((target) & SHIFT(EH_SPLIT_TARGET_INCOMPLETE_BIT))
+#define eh_split_target_need_recheck(target)	\
+			(!!((target) & SHIFT(EH_SPLIT_TARGET_RECHECK_BIT)))
+#define eh_split_incomplete_target(target)	\
+			(!!((target) & SHIFT(EH_SPLIT_TARGET_INCOMPLETE_BIT)))
 #define eh_split_target_depth(target)   ((target) &	\
 			INTERVAL(EH_SPLIT_TARGET_DEPTH_BIT_START, EH_SPLIT_TARGET_DEPTH_BIT_END))
 #define eh_split_target_seg(target)	((target) &	\
@@ -69,16 +71,13 @@ extern  "C" {
 					eh_split_range_prefix(target, 16, 19, TARGET))	\
 					& MASK(PREHASH_KEY_BITS - depth))
 
-#define make_eh_split_target_entry(target, hashed_key, depth, recheck)    \
+#define make_eh_split_target_entry(target, hashed_key, depth, recheck, incomplete)    \
                     (((uintptr_t)(target)) |	\
 						shift_prefix_for_eh_split(hashed_key, 48, 63, TARGET) |	\
 						shift_prefix_for_eh_split(hashed_key, 16, 19, TARGET)	|	\
                     	SHIFT_OF(recheck, EH_SPLIT_TARGET_RECHECK_BIT) |	\
+						SHIFT_OF(incomplete, EH_SPLIT_TARGET_INCOMPLETE_BIT) |	\
 						SHIFT_OF(depth, EH_SPLIT_TARGET_DEPTH_BIT_START))
-
-#define make_eh_split_target_incomplete_entry(target, depth)	\
-				(((uintptr_t)(target)) | SHIFT(EH_SPLIT_TARGET_INCOMPLETE_BIT)	\
-					| SHIFT_OF(depth, EH_SPLIT_TARGET_DEPTH_BIT_START))
 
 #define make_eh_split_dest_entry(dest, hashed_key) (((uintptr_t)(dest)) \
                     | shift_prefix_for_eh_split(hashed_key, 32, 47, DEST)  \
@@ -90,10 +89,7 @@ extern  "C" {
 
 struct eh_split_entry {
     uintptr_t target;
-    union {
-        uintptr_t destination;
-        u64 hashed_key;
-    };
+    uintptr_t destination;
 };
 
 struct eh_split_context {
@@ -101,7 +97,8 @@ struct eh_split_context {
 	struct eh_four_segment *dest_seg;
 	u64 hashed_key;
 	int depth;
-	int recheck;
+	short recheck;
+	short incomplete;
 };
 
 
@@ -110,19 +107,10 @@ static inline void init_eh_split_entry(
 					struct eh_split_context *split) {
     ent->target = make_eh_split_target_entry(
 							split->target_seg, split->hashed_key, 
-							split->depth, split->recheck);
+							split->depth, split->recheck, split->incomplete);
     ent->destination = make_eh_split_dest_entry(
 								split->dest_seg, split->hashed_key);
 }
-
-static inline void init_eh_split_incomplete_entry(
-                    struct eh_split_entry *ent,
-					struct eh_split_context *split) {
-    ent->target = make_eh_split_target_incomplete_entry(
-								split->target_seg, split->depth);
-    ent->hashed_key = split->hashed_key;
-}
-
 
 struct eh_two_segment *add_eh_new_segment(
 				struct eh_split_context *split,
