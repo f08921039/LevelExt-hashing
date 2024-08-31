@@ -99,7 +99,7 @@ void init_tls_context(int tid);
 struct eh_split_entry *append_split_record(
                     RECORD_POINTER *new_pointer,
                     struct eh_split_context *split, 
-                    int incomplete, int high_prio);
+                    int high_prio);
 
 void commit_split_record(
             RECORD_POINTER new_pointer, 
