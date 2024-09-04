@@ -115,6 +115,7 @@ static inline void init_eh_split_entry(
 struct eh_two_segment *add_eh_new_segment(
 				struct eh_split_context *split,
 				struct eh_two_segment *seg,
+				struct eh_bucket *bucket,
 				struct kv *kv, int high_prio);
 
 int eh_split(struct eh_split_entry *split_ent, int high_prio);

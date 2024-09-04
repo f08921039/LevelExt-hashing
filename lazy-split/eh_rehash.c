@@ -52,51 +52,45 @@ static void init_eh_seg_new_slot(
 struct eh_two_segment *add_eh_new_segment(
 				struct eh_split_context *split,
 				struct eh_two_segment *seg,
+				struct eh_bucket *bucket, 
 				struct kv *kv, int high_prio) {
-	EH_BUCKET_HEADER header, *header_addr;
+	EH_BUCKET_HEADER old, new, header, *header_addr;
 	struct eh_split_entry *s_ent;
 	RECORD_POINTER rp;
-	struct eh_two_segment *ret_seg;
 	struct eh_four_segment *already_seg;
-	int s2_id;
+	int s2_id = eh_seg2_id_in_seg4(split->hashed_key, split->depth);
 
-	header_addr = &seg->seg[0].bucket[0].header;
-
+	header_addr = &seg->bucket[0].header;
 	header = READ_ONCE(*header_addr);
 
 	if (unlikely(eh_seg_low(header))) {
-		s2_id = eh_seg2_id_in_seg4(split->hashed_key, split->depth);
-		split->dest_seg = (struct eh_four_segment *)eh_next_high_seg(header);
-		return &split->dest_seg->two_seg[s2_id];
+		already_seg = (struct eh_four_segment *)eh_next_high_seg(header);
+		seg = &already_seg->two_seg[s2_id];
+		goto finish_add_eh_new_segment;
 	}
 
-	split->dest_seg = (struct eh_four_segment *)alloc_eh_seg();
+	split->dest_seg = already_seg = (struct eh_four_segment *)alloc_eh_seg();
 
-	if (unlikely((void *)(split->dest_seg) == MAP_FAILED))
+	if (unlikely((void *)already_seg == MAP_FAILED))
 		return (struct eh_two_segment *)MAP_FAILED;
 	
 	s_ent = append_split_record(&rp, split, high_prio);
 
 	if (unlikely((void *)s_ent == MAP_FAILED))
-		ret_seg = (struct eh_two_segment *)MAP_FAILED;
+		seg = (struct eh_two_segment *)MAP_FAILED;
 	else {
-		EH_BUCKET_HEADER old, new;
+		hook_eh_seg_split_entry(already_seg, s_ent, high_prio);
+		init_eh_seg_new_slot(already_seg, kv, split->hashed_key, split->depth);
 
-		hook_eh_seg_split_entry(split->dest_seg, s_ent, high_prio);
-		init_eh_seg_new_slot(split->dest_seg, kv, split->hashed_key, split->depth);
-
-		new = set_eh_seg_low(&split->dest_seg->two_seg[0]);
+		new = set_eh_seg_low(&already_seg->two_seg[0]);
 
 	try_add_new_eh_seg :
 		old = cas(header_addr, header, new);
 
 		if (old == header) {
-			new = set_eh_seg_low(&split->dest_seg->two_seg[1]);
-			header_addr = &seg->seg[1].bucket[0].header;
-			cas(header_addr, INITIAL_EH_BUCKET_HEADER, new);
 			commit_split_record(rp, high_prio);
-
-			return NULL;
+			seg = NULL;
+			goto finish_add_eh_new_segment;
 		}
 
 		if (!eh_seg_low(old)) {
@@ -104,16 +98,22 @@ struct eh_two_segment *add_eh_new_segment(
 			goto try_add_new_eh_seg;
 		}
 
-		s2_id = eh_seg2_id_in_seg4(split->hashed_key, split->depth);
 		already_seg = (struct eh_four_segment *)eh_next_high_seg(old);
-		ret_seg = &already_seg->two_seg[s2_id];
+		seg = &already_seg->two_seg[s2_id];
 	}
 
 	free_page_aligned(split->dest_seg, EH_FOUR_SEGMENT_SIZE);
 
-	split->dest_seg = already_seg;
+	if (unlikely((void *)seg == MAP_FAILED))
+		return (struct eh_two_segment *)MAP_FAILED;
 
-	return ret_seg;
+finish_add_eh_new_segment :
+	if (likely(header_addr != &bucket->header)) {
+		new = set_eh_seg_low(&already_seg->two_seg[s2_id]);
+		cas(&bucket->header, INITIAL_EH_BUCKET_HEADER, new);
+	}
+
+	return seg;
 }
 
 __attribute__((always_inline, optimize("unroll-loops")))
@@ -383,22 +383,34 @@ static int migrate_eh_ext_slot(
 
 __attribute__((always_inline, optimize("unroll-loops")))
 static void prefetch_eh_split_bucket(
-				struct eh_segment *low_seg, 
+				struct eh_segment *low_seg,
+				struct eh_two_segment *middle_seg, 
 				struct eh_four_segment *high_seg, 
 				int id) {
-	void *addr = &low_seg->bucket[id];
-	int i, j, k;
+	void *addr;
+	int i, k, id_4, id_2;
+
+	addr = &low_seg->bucket[id];
 
 	for (i = 0; i < EH_PER_BUCKET_CACHELINE; ++i)
 		prefech_r0(addr + MUL_2(i, CACHE_LINE_SHIFT));
 
-	id = MUL_2(id, 2);
+	id_4 = MUL_2(id, 2);
 
-	for (j = 0; j < 4; ++j) {
-		void *addr2 = &high_seg->bucket[id + j];
+	for (i = 0; i < 4; ++i) {
+		addr = &high_seg->bucket[id_4 + i];
 
 		for (k = 0; k < DIV_2(EH_PER_BUCKET_CACHELINE, 2); ++k)
-			prefech_r0(addr2 + MUL_2(k, CACHE_LINE_SHIFT));
+			prefech_r0(addr + MUL_2(k, CACHE_LINE_SHIFT));
+	}
+
+	if (id != 0) {
+		id_2 = MUL_2(id - 1, 1);
+
+		for (i = 0; i < 2; ++i) {
+			addr = &middle_seg->bucket[id_2 + i];
+			prefech_r0(addr);
+		}
 	}
 }
 
@@ -407,9 +419,9 @@ static struct eh_two_segment *split_eh_segment(
 						struct eh_four_segment *dest_seg, 
 						u64 hashed_prefix,
 						int depth) {
-	EH_BUCKET_HEADER b_header;
+	EH_BUCKET_HEADER b_header, m_header;
 	struct eh_two_segment *seg_2;
-	struct eh_bucket *bucket, *bucket_h;
+	struct eh_bucket *bucket, *bucket_m, *bucket_h;
 	EH_BUCKET_SLOT slot_val, *slot_addr;
 	u16 dest_ind[4];
 	u16 undo_ind[4];
@@ -419,12 +431,18 @@ static struct eh_two_segment *split_eh_segment(
 	seg_2 = (struct eh_two_segment *)eh_next_high_seg(b_header);
 	b_header = set_eh_seg_splited(b_header);
 
+	m_header = set_eh_seg_low(&dest_seg->two_seg[0]);
+
 	for (b_id = 0; b_id < EH_BUCKET_NUM; ++b_id) {
 		if (b_id != EH_BUCKET_NUM - 1)
-			prefetch_eh_split_bucket(target_seg, dest_seg, b_id + 1);
+			prefetch_eh_split_bucket(target_seg, seg_2, dest_seg, b_id + 1);
+
+		if (b_id == DIV_2(EH_BUCKET_NUM, 1))
+			m_header = set_eh_seg_low(&dest_seg->two_seg[1]);
 
 		bucket = &target_seg->bucket[b_id];
 		bucket_h = &dest_seg->bucket[MUL_2(b_id, 2)];
+		bucket_m = &seg_2->bucket[MUL_2(b_id, 1)];
 		undo_count = 0;
 
 		find_dest_bucket_free_slot(bucket_h, &dest_ind[0]);
@@ -470,7 +488,6 @@ static struct eh_two_segment *split_eh_segment(
 				continue;
 
 		migrate_eh_undo_slot :
-		//printf("%d\n", undo_count);
 			for (i = 0; i < undo_count; ++i) {
 				slot_addr = &bucket->kv[undo_ind[i]];
 				slot_val = READ_ONCE(*slot_addr);
@@ -497,6 +514,12 @@ static struct eh_two_segment *split_eh_segment(
 
 		if (undo_count)
 			goto migrate_eh_undo_slot;
+
+		if (READ_ONCE(bucket_m[0].header) == INITIAL_EH_BUCKET_HEADER)
+			WRITE_ONCE(bucket_m[0].header, m_header);
+
+		if (READ_ONCE(bucket_m[1].header) == INITIAL_EH_BUCKET_HEADER)
+			WRITE_ONCE(bucket_m[1].header, m_header);
 
 		release_fence();
 		WRITE_ONCE(bucket->header, b_header);
@@ -532,7 +555,7 @@ static struct eh_two_segment *analyze_eh_split_entry(
 		ret_seg = (struct eh_two_segment *)split->dest_seg;
 		split->incomplete = 1;
 	} else {
-		prefetch_eh_split_bucket(split->target_seg, split->dest_seg, 0);
+		prefetch_eh_split_bucket(split->target_seg, NULL, split->dest_seg, 0);
 		ret_seg = NULL;
 		split->incomplete = 0;
 	}
