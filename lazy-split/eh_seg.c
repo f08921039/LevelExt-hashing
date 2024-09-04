@@ -599,10 +599,10 @@ delete_eh_next_seg_kv :
 			if (fingerprint == eh_slot_fingerprint16(slot)) {
 				state = compare_delete_eh_slot(kv, slot, &bucket->kv[id]);
 
-				if (state = REPLACED_SLOT)
+				if (state == REPLACED_SLOT)
 					return 0;
 
-				if (state = DELETED_SLOT)
+				if (state == DELETED_SLOT)
 					return -1;
 
 				if (unlikely(state == INVALID_SLOT)) {
