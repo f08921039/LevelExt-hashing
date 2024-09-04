@@ -569,7 +569,7 @@ int delete_eh_seg_kv(
 
 	bucket_id = eh_seg_bucket_idx(hashed_key, l_depth);
 	bucket = &low_seg->bucket[bucket_id];
-	prefetch_eh_bucket_head(bucket, low_seg);
+	prefetch_eh_bucket_head(bucket);
 
 	migrated = 0;
 
