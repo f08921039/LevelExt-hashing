@@ -243,17 +243,20 @@ static int __further_migrate_eh_slot(
 
 	seg2 = &dest->two_seg[seg_id];
 
+	bucket_id = eh_seg2_bucket_idx(split.hashed_key, split.depth);
+	bucket = &seg2->bucket[bucket_id];
+
 further_next_migrate_eh_slot :
 	seg_id = eh_seg_id_in_seg2(split.hashed_key, split.depth);
 	next_seg = &seg2->seg[seg_id];
-	header = READ_ONCE(next_seg->bucket[0].header);
+	header = READ_ONCE(bucket->header);
 
 	bucket_id = eh_seg2_bucket_idx(split.hashed_key, split.depth + 1);
 
 	if (eh_seg_low(header))
 		seg2 = (struct eh_two_segment *)eh_next_high_seg(header);
 	else {
-		seg2 = add_eh_new_segment(&split, seg2, kv, 1);
+		seg2 = add_eh_new_segment(&split, seg2, bucket, kv, 1);
 
 		if ((void *)seg2 == MAP_FAILED)
 			return -1;
@@ -265,10 +268,6 @@ further_next_migrate_eh_slot :
 			new_slot = *new_addr;
 			goto further_migrate_eh_slot_success;
 		}
-
-		if (seg2 == &split.dest_seg->two_seg[1])
-			cas(&next_seg->bucket[0].header, 
-						INITIAL_EH_BUCKET_HEADER, set_eh_seg_low(seg2));
 	}
 
 	fingerprint = hashed_key_fingerprint18(split.hashed_key, split.depth + 2);
