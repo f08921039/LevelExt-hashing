@@ -205,7 +205,7 @@ static enum eh_slot_state find_eh_free_slot(
 		header = READ_ONCE(bucket->header);
 		two_seg = retrieve_eh_high_segment(header);
 
-		if (!two_seg)
+		if (!two_seg || unlikely(eh_bucket_stayed(header)))
 			return UNMATCH_SLOT;
 
 		bucket_id = eh_seg2_bucket_idx(hashed_key, depth);
@@ -321,7 +321,7 @@ append_eh_no_free_slot :
 	header = READ_ONCE(bucket->header);
 	two_seg = retrieve_eh_high_segment(header);
 
-	if (!two_seg) {
+	if (!two_seg || unlikely(eh_bucket_stayed(header))) {
 		record_bucket_initial_traversal(&record[0]);
 		return -1;
 	}

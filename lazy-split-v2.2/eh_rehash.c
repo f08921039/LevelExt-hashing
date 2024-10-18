@@ -187,7 +187,7 @@ further_next_migrate_eh_slot :
 
 	bucket_id = eh_seg2_bucket_idx(split.hashed_key, split.depth + 1);
 
-	if (eh_seg_low(header))
+	if (eh_seg_low(header) && likely(!eh_bucket_stayed(header)))
 		seg2 = (struct eh_two_segment *)eh_next_high_seg(header);
 	else {
 		seg2 = add_eh_new_segment(&split, seg2, bucket, kv, -1);
