@@ -269,10 +269,12 @@ static void prefault_memory() {
 void free_reclaim_area(
             struct tls_context *tls, 
             RECORD_POINTER tail, 
+            u64 time_limit, 
             int page_type) {
     RECORD_POINTER *head_ptr;
     struct reclaim_entry *ent, *carve;
     struct record_page *h_page, *t_page, *page;
+    u64 t;
     int h_ent_num, t_ent_num;
 
     head_ptr = (page_type ? &tls->page_reclaim : &tls->chunk_reclaim);
@@ -301,6 +303,13 @@ void free_reclaim_area(
             page = h_page->next;
             free_page_aligned(h_page, RECORD_PAGE_SIZE);
             h_page = page;
+
+            t = sys_time_us();
+        
+            if (t > time_limit) {
+                time_limit = t + BACKGROUND_GC_PERIOD;
+                prefault_memory();
+            }
         }
 
         ent = &h_page->r_ent[h_ent_num];
@@ -312,7 +321,7 @@ void free_reclaim_area(
 }
 
 __attribute__((always_inline))
-static void free_all_reclaim_page() {
+static void free_all_reclaim_page(u64 time_limit) {
     struct per_node_context *per_nc;
     struct tls_context *tls;
     RECORD_POINTER rp, *page_rp;
@@ -332,13 +341,13 @@ static void free_all_reclaim_page() {
             rp = READ_ONCE(page_rp[t - mt]);
             
             if (likely(rp != INVALID_RECORD_POINTER))
-              free_reclaim_area(tls, rp, 1);
+              free_reclaim_area(tls, rp, time_limit, 1);
         }
     }
 }
 
 __attribute__((always_inline))
-static void free_all_reclaim_chunk() {
+static void free_all_reclaim_chunk(u64 time_limit) {
     struct per_node_context *per_nc;
     struct tls_context *tls;
     RECORD_POINTER rp, *chunk_rp;
@@ -356,7 +365,7 @@ static void free_all_reclaim_chunk() {
             rp = READ_ONCE(chunk_rp[t]);
             
             if (likely(rp != INVALID_RECORD_POINTER))
-              free_reclaim_area(tls, rp, 0);
+              free_reclaim_area(tls, rp, time_limit, 0);
         }
     }
 }
@@ -401,6 +410,7 @@ void *gc_task(void *parameter) {
         time_limit = sys_time_us() + BACKGROUND_GC_PERIOD;
 
         if (per_nc->gc_main) {
+            node_context.min_epoch = MAX_LONG_INTEGER;
             collect_all_thread_info();
 
             if (unlikely(node_context.min_epoch == MAX_LONG_INTEGER)) {
@@ -413,7 +423,6 @@ void *gc_task(void *parameter) {
                 node_context.epoch < node_context.min_epoch
                                     && check_gc_version() == 0) {
             node_context.epoch = node_context.max_epoch;
-            node_context.min_epoch = MAX_LONG_INTEGER;
 
             release_fence();
             WRITE_ONCE(node_context.gc_version, node_context.gc_version + 1);
