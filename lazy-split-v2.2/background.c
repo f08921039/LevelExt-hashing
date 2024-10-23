@@ -419,6 +419,8 @@ void *gc_task(void *parameter) {
             }
         }
 
+        prefault_memory();
+
         if (per_nc->gc_main && 
                 node_context.epoch < node_context.min_epoch
                                     && check_gc_version() == 0) {
@@ -429,14 +431,12 @@ void *gc_task(void *parameter) {
         }
 
         if (per_nc->gc_version != READ_ONCE(node_context.gc_version)) {
-            free_all_reclaim_page();
-            free_all_reclaim_chunk();
+            free_all_reclaim_page(time_limit);
+            free_all_reclaim_chunk(time_limit );
 
             release_fence();
             WRITE_ONCE(per_nc->gc_version, node_context.gc_version);
         }
-
-        prefault_memory();
         
         t = sys_time_us();
 
