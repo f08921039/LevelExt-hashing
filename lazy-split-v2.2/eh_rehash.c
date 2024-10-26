@@ -70,6 +70,28 @@ void find_dest_bucket_free_slot(
 	}
 }
 
+__attribute__((always_inline))
+static EH_BUCKET_SLOT clear_eh_delete_slot(
+			EH_BUCKET_SLOT *slot_addr,
+			EH_BUCKET_SLOT slot_val) {
+	EH_BUCKET_SLOT old;
+
+	while (eh_slot_deleted(slot_val)) {
+		/*if (unlikely(eh_slot_invalid(slot_val)))
+			return INVALID_DELETED_EH_SLOT;*/
+		old = cas(slot_addr, slot_val, INVALID_DELETED_EH_SLOT);
+
+		if (likely(old == slot_val)) {
+			reclaim_chunk((void *)eh_slot_kv_addr(slot_val));
+			return INVALID_DELETED_EH_SLOT;
+		}
+
+		slot_val = old;
+	}
+
+	return slot_val;
+}
+
 static int __migrate_eh_slot(
 		struct eh_bucket *dest_bucket,
 		EH_BUCKET_SLOT *slot_addr,
@@ -78,7 +100,10 @@ static int __migrate_eh_slot(
 		EH_BUCKET_SLOT old_slot,
 		u16 *dest_idx) {
 	EH_BUCKET_SLOT *addr;
-	int i = *dest_idx;
+	int i;
+
+__migrate_eh_slot_again :
+	i = *dest_idx;
 
 	if (eh_slot_free(old_slot)) {
 		for (; i < EH_SLOT_NUM_PER_BUCKET; ++i) {
@@ -95,11 +120,22 @@ static int __migrate_eh_slot(
 	addr = &dest_bucket->kv[i];
 
 re_migrate_eh_half_slot :
-	slot_val = old_slot;
-	new_slot = replace_eh_slot_kv_addr(new_slot, eh_slot_kv_addr(old_slot));
+	if (eh_slot_deleted(old_slot)) {
+		WRITE_ONCE(*addr, INVALID_DELETED_EH_SLOT);
+		(*dest_idx) = i + 1;
+		old_slot = clear_eh_delete_slot(slot_addr, old_slot);
 
-	if (eh_slot_deleted(old_slot))
-		new_slot = delete_eh_slot(new_slot);
+		if (eh_slot_invalid_deleted(old_slot))
+			return 0;
+	}
+
+	slot_val = old_slot;
+	new_slot = replace_eh_slot_kv_addr(new_slot, eh_slot_kv_addr(slot_val));
+
+	if (*addr == INVALID_DELETED_EH_SLOT) {
+		old_slot = FREE_EH_SLOT;
+		goto __migrate_eh_slot_again;
+	}
 
 	WRITE_ONCE(*addr, new_slot);
 
@@ -141,12 +177,12 @@ static int migrate_eh_slot(
 
 
 static int __further_migrate_eh_slot(
-				struct eh_four_segment *dest, 
-				struct eh_two_segment *seg2, 
-				EH_BUCKET_SLOT *slot_addr,
-				EH_BUCKET_SLOT slot_val,
-				u64 hashed_prefix, 
-				int depth) {
+			struct eh_four_segment *dest, 
+			struct eh_two_segment *seg2, 
+			EH_BUCKET_SLOT *slot_addr,
+			EH_BUCKET_SLOT slot_val,
+			u64 hashed_prefix, 
+			int depth) {
 	struct eh_segment *next_seg;
 	struct kv *kv = (struct kv *)eh_slot_kv_addr(slot_val);
 	u64 fingerprint;
@@ -241,42 +277,19 @@ further_migrate_eh_slot_success :
 
 __attribute__((always_inline))
 static int further_migrate_eh_slot(
-				struct eh_four_segment *dest, 
-				struct eh_two_segment *seg2, 
-				EH_BUCKET_SLOT *slot_addr,
-				EH_BUCKET_SLOT slot_val,
-				u64 hashed_prefix, 
-				int bucket_idx, int depth) {
+			struct eh_four_segment *dest, 
+			struct eh_two_segment *seg2, 
+			EH_BUCKET_SLOT *slot_addr,
+			EH_BUCKET_SLOT slot_val,
+			u64 hashed_prefix, 
+			int bucket_idx, int depth) {
 #ifndef DHT_INTEGER
 	hashed_prefix |= SHIFT_OF(bucket_idx, 
 					PREHASH_KEY_BITS - EH_BUCKET_INDEX_BIT - depth);
 #endif
 	return __further_migrate_eh_slot(dest, seg2, slot_addr, 
-							slot_val, hashed_prefix, depth);
+						slot_val, hashed_prefix, depth);
 }
-
-__attribute__((always_inline))
-static EH_BUCKET_SLOT clear_eh_delete_slot(
-			EH_BUCKET_SLOT *slot_addr,
-			EH_BUCKET_SLOT slot_val) {
-	EH_BUCKET_SLOT old;
-
-	while (eh_slot_deleted(slot_val)) {
-		/*if (unlikely(eh_slot_invalid(slot_val)))
-			return INVALID_DELETED_EH_SLOT;*/
-		old = cas(slot_addr, slot_val, INVALID_DELETED_EH_SLOT);
-
-		if (likely(old == slot_val)) {
-			reclaim_chunk((void *)eh_slot_kv_addr(slot_val));
-			return INVALID_DELETED_EH_SLOT;
-		}
-
-		slot_val = old;
-	}
-
-	return slot_val;
-}
-
 
 __attribute__((always_inline))
 static int migrate_eh_int_slot(
@@ -502,7 +515,7 @@ static void hook_eh_seg_split_entry(
 
 __attribute__((always_inline))
 static void rehook_eh_seg_split_entry(
-				struct eh_four_segment *new_seg) {
+			struct eh_four_segment *new_seg) {
 	EH_BUCKET_HEADER header, *h_addr;
 	int seg_id;
 
@@ -586,10 +599,10 @@ try_further_append_split_record :
 
 __attribute__((always_inline))
 static int unhook_eh_seg_split_entry(
-				struct eh_two_segment *seg2,
-				struct eh_four_segment *new_seg,
-				u64 hashed_prefix, 
-				int depth) {
+			struct eh_two_segment *seg2,
+			struct eh_four_segment *new_seg,
+			u64 hashed_prefix, 
+			int depth) {
 	EH_BUCKET_HEADER old, h1, h2, header, *h_addr;
 	struct eh_split_context split;
 	int seg_id, high_prio, ret = 0;
