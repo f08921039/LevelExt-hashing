@@ -157,9 +157,9 @@ static int __further_migrate_eh_slot(
 	int i, bucket_id, seg_id;
 
 #ifdef DHT_INTEGER
-    split.hashed_key = get_kv_prehash64(kv);
+	split.hashed_key = get_kv_prehash64(kv);
 #else
-    if (depth < 16 - EH_BUCKET_INDEX_BIT) {
+	if (depth < 16 - EH_BUCKET_INDEX_BIT) {
 		fingerprint = eh_slot_fingerprint16(slot_val);
 		hashed_prefix |= SHIFT_OF(fingerprint, PREHASH_KEY_BITS - 16 - EH_BUCKET_INDEX_BIT - depth);
 	}
