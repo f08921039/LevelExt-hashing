@@ -409,18 +409,18 @@ put_eh_next_seg_kv :
 
 			if (eh_slot_free(slot)) {
 				record_bucket_traversal(&record[0], &s_record[0], 
-										new_slot, bucket, id, l_depth);
+							new_slot, bucket, id, l_depth);
 				goto put_eh_seg_kv_no_matched;
 			}
 
 			if (fingerprint == eh_slot_fingerprint16(slot)) {
 				state = compare_replace_eh_slot(kv, slot, 
-											&bucket->kv[id], new_slot);
+							&bucket->kv[id], new_slot);
 
 				if (state == REPLACED_SLOT)
 					return 0;
 
-				if (state == INVALID_SLOT) {
+				if (unlikely(state == INVALID_SLOT)) {
 					record_bucket_initial_traversal(&record[0]);
 					goto put_eh_seg_kv_no_matched;
 				}
