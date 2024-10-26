@@ -289,14 +289,14 @@ static int migrate_eh_int_slot(
 	u64 fingerprint18;
 
 #ifdef DHT_INTEGER
-    fingerprint18 = SHIFT_OF(get_kv_prehash64(kv), 
-						depth + EH_BUCKET_INDEX_BIT + 2);
+	fingerprint18 = SHIFT_OF(get_kv_prehash64(kv), 
+				depth + EH_BUCKET_INDEX_BIT + 2);
 	fingerprint18 >>= (PREHASH_KEY_BITS - 18);
 #else
-    fingerprint18 = (eh_slot_fingerprint16(slot_val) & INTERVAL(0, 13)) << 4;
+	fingerprint18 = (eh_slot_fingerprint16(slot_val) & INTERVAL(0, 13)) << 4;
 	fingerprint18 |= 
 		(SHIFT_OF(get_kv_prehash48(kv), depth + EH_BUCKET_INDEX_BIT + 16) 
-											>> (PREHASH_KEY_BITS - 4));
+							>> (PREHASH_KEY_BITS - 4));
 #endif
 
 	new_slot = make_eh_ext_slot(fingerprint18, kv);
@@ -320,13 +320,13 @@ static int migrate_eh_ext_slot(
 
 __attribute__((always_inline))
 static int migrate_eh_undo_slot(
-				struct eh_bucket *bucket,
-				struct eh_bucket *high_bucket, 
-				struct eh_two_segment *seg2, 
-				struct eh_four_segment *dest_seg, 
-				u64 hashed_prefix, int depth, 
-				int bucket_id, u16 *dest_ind, 
-				u16 *undo_ind, int undo_count) {
+			struct eh_bucket *bucket,
+			struct eh_bucket *high_bucket, 
+			struct eh_two_segment *seg2, 
+			struct eh_four_segment *dest_seg, 
+			u64 hashed_prefix, int depth, 
+			int bucket_id, u16 *dest_ind, 
+			u16 *undo_ind, int undo_count) {
 	EH_BUCKET_SLOT slot_val, *slot_addr;
 	int i, d_id;
 			
@@ -350,9 +350,9 @@ static int migrate_eh_undo_slot(
 
 
 static struct eh_two_segment *split_eh_segment(
-						struct eh_segment *target_seg, 
-						struct eh_four_segment *dest_seg, 
-						u64 hashed_prefix, int depth) {
+				struct eh_segment *target_seg, 
+				struct eh_four_segment *dest_seg, 
+				u64 hashed_prefix, int depth) {
 	EH_BUCKET_HEADER header, b_header, m_header, h;
 	struct eh_two_segment *seg_2;
 	struct eh_bucket *bucket, *bucket_m, *bucket_h;
@@ -452,7 +452,7 @@ static struct eh_two_segment *split_eh_segment(
 __attribute__((always_inline))
 static struct eh_two_segment *analyze_eh_split_entry(
                     	struct eh_split_entry *split_ent,
-						struct eh_split_context *split,
+			struct eh_split_context *split,
                     	int high_prio) {
 	uintptr_t t_ent, d_ent;
 	struct eh_two_segment *ret_seg;
@@ -461,20 +461,20 @@ static struct eh_two_segment *analyze_eh_split_entry(
 	d_ent = split_ent->destination;
 
 	if (!high_prio) {
-        if (unlikely(t_ent == INVALID_EH_SPLIT_TARGET))
-            return (struct eh_two_segment *)-1;
+        	if (unlikely(t_ent == INVALID_EH_SPLIT_TARGET))
+            		return (struct eh_two_segment *)-1;
 
-        if (unlikely(!cas_bool(&split_ent->target, t_ent, INVALID_EH_SPLIT_TARGET)))
-            return (struct eh_two_segment *)-1;
-    }
+        	if (unlikely(!cas_bool(&split_ent->target, t_ent, INVALID_EH_SPLIT_TARGET)))
+            		return (struct eh_two_segment *)-1;
+	}
 
-    split->depth = eh_split_target_depth(t_ent);// below 48
+	split->depth = eh_split_target_depth(t_ent);// below 48
 	split->target_seg = (struct eh_segment *)eh_split_target_seg(t_ent);
-    split->dest_seg = (struct eh_four_segment *)eh_split_dest_seg(d_ent);
+	split->dest_seg = (struct eh_four_segment *)eh_split_dest_seg(d_ent);
 
 	if (unlikely(eh_split_incomplete_target(t_ent))) {
 		ret_seg = (struct eh_two_segment *)eh_next_high_seg(
-									split->target_seg->bucket[0].header);
+						split->target_seg->bucket[0].header);
 		split->incomplete = 1;
 	} else {
 		prefetch_eh_split_low_bucket(split->target_seg, 0);
@@ -544,7 +544,7 @@ static int further_append_split_record(
 		h2 = READ_ONCE(*h2_addr);
 
 		if (h1 == INITIAL_EH_BUCKET_HP_HEADER && 
-						h2 == INITIAL_EH_BUCKET_HP_HEADER)
+				h2 == INITIAL_EH_BUCKET_HP_HEADER)
 			high_prio = 0;
 	}
 
@@ -558,20 +558,20 @@ try_further_append_split_record :
 
 	if (unlikely(high_prio == 0)) {
 		h1 = cas(h1_addr, INITIAL_EH_BUCKET_HP_HEADER, 
-										set_eh_split_entry(s_entry));
+						set_eh_split_entry(s_entry));
 		if (unlikely(h1 != INITIAL_EH_BUCKET_HP_HEADER)) {
 			high_prio = 1;
 			goto try_further_append_split_record;
 		}
 
 		h2 = cas(h2_addr, INITIAL_EH_BUCKET_HP_HEADER, 
-										set_eh_split_entry(s_entry));
+						set_eh_split_entry(s_entry));
 
 		h1 = READ_ONCE(*h1_addr);
 
 		if (h2 == INITIAL_EH_BUCKET_HP_HEADER && eh_seg_low(h1))
 			cas(h2_addr, set_eh_split_entry(s_entry), 
-										INITIAL_EH_BUCKET_HP_HEADER);
+						INITIAL_EH_BUCKET_HP_HEADER);
 		else if (h2 != INITIAL_EH_BUCKET_HP_HEADER && 
 					h1 == set_eh_split_entry(s_entry) && 
 					cas_bool(h1_addr, h1, INITIAL_EH_BUCKET_HP_HEADER)) {
@@ -616,23 +616,23 @@ static int unhook_eh_seg_split_entry(
 }
 
 static int __eh_split(
-				EH_CONTEXT *contex,
-				struct eh_split_context *split, 
-				struct eh_two_segment *seg2) {
+		EH_CONTEXT *contex,
+		struct eh_split_context *split, 
+		struct eh_two_segment *seg2) {
 	struct eh_split_entry *split_ent;
 	EH_CONTEXT c_val;
 	struct eh_dir *dir, *dir_head;
 	RECORD_POINTER rp;
-    int g_depth, ret = 0;
+	int g_depth, ret = 0;
 
 	c_val = READ_ONCE(*contex);
 
 	dir_head = head_of_eh_dir(c_val);
-    g_depth = eh_depth(c_val);
+	g_depth = eh_depth(c_val);
 
 	if (unlikely(g_depth == split->depth)) { //g_depth never < split->depth
 		dir_head = expand_eh_directory(contex, c_val, dir_head, 
-											g_depth, split->depth + 1);
+						g_depth, split->depth + 1);
 
 		if (unlikely((void *)dir_head == MAP_FAILED)) {
 			ret = -1;
@@ -650,13 +650,13 @@ static int __eh_split(
 	}
 
 	dir = base_slot_of_eh_dir(dir_head, split->hashed_key, 
-										split->depth, g_depth);
+						split->depth, g_depth);
 
 	if (likely(!split->incomplete)) {
 		prefech_r0(dir);
 
 		seg2 = split_eh_segment(split->target_seg, split->dest_seg, 
-										split->hashed_key, split->depth);
+						split->hashed_key, split->depth);
 
 		if (unlikely(!seg2))
         	goto eh_split_for_next;
@@ -676,7 +676,7 @@ static int __eh_split(
 	reclaim_page(split->target_seg, EH_SEGMENT_SIZE_BITS);
 
 	return unhook_eh_seg_split_entry(seg2, split->dest_seg, 
-										split->hashed_key, split->depth);
+						split->hashed_key, split->depth);
 
 eh_split_for_next :
 	rehook_eh_seg_split_entry(split->dest_seg);
@@ -688,20 +688,20 @@ eh_split_for_next :
 	}
 
 	commit_split_record(rp, 1);
-    return ret;
+	return ret;
 }
 
 int eh_split(struct eh_split_entry *split_ent, int high_prio) {
-    EH_CONTEXT *contex;
-    struct eh_split_context split;
-    struct eh_two_segment *seg2;
+	EH_CONTEXT *contex;
+	struct eh_split_context split;
+	struct eh_two_segment *seg2;
 
-    seg2 = analyze_eh_split_entry(split_ent, &split, high_prio);
+	seg2 = analyze_eh_split_entry(split_ent, &split, high_prio);
 
-    if (unlikely(seg2 == (struct eh_two_segment *)-1))
-        return 0;
+	if (unlikely(seg2 == (struct eh_two_segment *)-1))
+		return 0;
 
-    contex = get_eh_context(split.hashed_key);
+	contex = get_eh_context(split.hashed_key);
 
 	return  __eh_split(contex, &split, seg2);
 }
@@ -709,10 +709,10 @@ int eh_split(struct eh_split_entry *split_ent, int high_prio) {
 
 __attribute__((always_inline))
 static void init_eh_seg_new_slot(
-				struct eh_four_segment *new_seg, 
-				EH_BUCKET_HEADER hook_header,
-				struct kv *kv, u64 hashed_key, 
-				int depth) {
+			struct eh_four_segment *new_seg, 
+			EH_BUCKET_HEADER hook_header,
+			struct kv *kv, u64 hashed_key, 
+			int depth) {
 	u64 fingerprint = hashed_key_fingerprint18(hashed_key, depth + 2);
 	int bucket_id = eh_seg4_bucket_idx(hashed_key, depth);
 	
