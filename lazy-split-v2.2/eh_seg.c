@@ -44,19 +44,40 @@ static void prefetch_eh_bucket_head(struct eh_bucket *bucket) {
 
 __attribute__((always_inline))
 static struct eh_two_segment *retrieve_eh_high_segment(
-							EH_BUCKET_HEADER header) {
+						EH_BUCKET_HEADER header) {
 	if (eh_seg_low(header))
 		return (struct eh_two_segment *)eh_next_high_seg(header);
 
 	return NULL;
 }
 
+__attribute__((always_inline))
+static struct eh_two_segment *retrieve_eh_higher_segment(
+						struct eh_bucket *bucket,
+						struct eh_two_segment *next_seg, 
+						u64 hashed_key, int depth) {
+	EH_BUCKET_HEADER header;
+	struct eh_four_segment *next_next_seg;
+	int seg2_id;
+
+	if (unlikely(next_seg == NULL)) {
+		header = READ_ONCE(bucket->header);
+		next_seg = (struct eh_two_segment *)eh_next_high_seg(header);
+	}
+
+	seg2_id = eh_seg2_id_in_seg4(hashed_key, depth);
+
+	header = READ_ONCE(next_seg->bucket[0].header);
+	next_next_seg = (struct eh_four_segment *)eh_next_high_seg(header);
+
+	return &next_next_seg->two_seg[seg2_id];
+}
 
 __attribute__((always_inline))
 static void prefetch_eh_bucket_step(
-						struct eh_bucket *bucket, 
-						struct eh_two_segment *next_seg, 
-						int next_id, int cacheline_id) {
+			struct eh_bucket *bucket, 
+			struct eh_two_segment *next_seg, 
+			int next_id, int cacheline_id) {
 	int c = cacheline_id + INIT_PREFETCH_CACHELINE_OF_EH_BUCKET;
 	void *addr;
 	
@@ -73,9 +94,9 @@ static void prefetch_eh_bucket_step(
 
 __attribute__((always_inline))
 static void prefetch_eh_next_bucket_head(
-						struct eh_two_segment *next_seg, 
-						int next_id, 
-						int cacheline_id) {
+				struct eh_two_segment *next_seg, 
+				int next_id, 
+				int cacheline_id) {
 	void *bucket = (void *)&next_seg->bucket[next_id];
 	int c = cacheline_id + INIT_PREFETCH_CACHELINE_OF_EH_BUCKET;
 
@@ -97,11 +118,11 @@ static int check_bucket_traversal(EH_SLOT_RECORD record) {
 
 __attribute__((always_inline))
 static void record_bucket_traversal(
-					EH_SLOT_RECORD *record,
-					EH_BUCKET_SLOT *s_record,
-					EH_BUCKET_SLOT new_slot,
-					struct eh_bucket *bucket, 
-					int slot_id, int l_depth) {
+			EH_SLOT_RECORD *record,
+			EH_BUCKET_SLOT *s_record,
+			EH_BUCKET_SLOT new_slot,
+			struct eh_bucket *bucket, 
+			int slot_id, int l_depth) {
 	EH_SLOT_RECORD r = set_eh_slot_record(bucket, slot_id, l_depth);
 
 	if (record[0] == INVALID_EH_SLOT_RECORD) {
@@ -122,10 +143,10 @@ enum eh_slot_state {
 
 __attribute__((always_inline))
 static enum eh_slot_state compare_replace_eh_slot(
-						struct kv *kv, 
-						EH_BUCKET_SLOT slot_val,
-						EH_BUCKET_SLOT *slot_addr,
-						EH_BUCKET_SLOT new_slot) {
+					struct kv *kv, 
+					EH_BUCKET_SLOT slot_val,
+					EH_BUCKET_SLOT *slot_addr,
+					EH_BUCKET_SLOT new_slot) {
 	EH_BUCKET_SLOT old_slot;
 	struct kv *old_kv;
 
@@ -155,9 +176,9 @@ static enum eh_slot_state compare_replace_eh_slot(
 
 __attribute__((always_inline))
 static enum eh_slot_state compare_delete_eh_slot(
-							struct kv *kv, 
-							EH_BUCKET_SLOT slot_val,
-							EH_BUCKET_SLOT *slot_addr) {
+					struct kv *kv, 
+					EH_BUCKET_SLOT slot_val,
+					EH_BUCKET_SLOT *slot_addr) {
 	struct kv *old_kv;
 	EH_BUCKET_SLOT old_slot;
 
@@ -186,11 +207,11 @@ static enum eh_slot_state compare_delete_eh_slot(
 }
 
 static enum eh_slot_state find_eh_free_slot(
-					EH_SLOT_RECORD *record, 
-					EH_BUCKET_SLOT *s_record,
-					struct kv *kv, u64 hashed_key, 
-					struct eh_bucket *bucket, 
-					int depth) {
+				EH_SLOT_RECORD *record, 
+				EH_BUCKET_SLOT *s_record,
+				struct kv *kv, u64 hashed_key, 
+				struct eh_bucket *bucket, 
+				int depth) {
 	EH_BUCKET_SLOT tmp_slot;
 	struct eh_two_segment *two_seg;
 	EH_BUCKET_HEADER header;
@@ -233,7 +254,7 @@ static enum eh_slot_state find_eh_free_slot(
 
 			if (fingerprint == eh_slot_fingerprint16(tmp_slot)) {
 				state = compare_replace_eh_slot(kv, tmp_slot, 
-										&bucket->kv[slot_id], new_slot);
+								&bucket->kv[slot_id], new_slot);
 
 				if (state == REPLACED_SLOT)
 					return REPLACED_SLOT;
@@ -249,11 +270,11 @@ static enum eh_slot_state find_eh_free_slot(
 
 
 static int __append_eh_slot(
-				EH_SLOT_RECORD *record, 
-				EH_BUCKET_SLOT *s_record,
-				struct kv *kv, u64 hashed_key, 
-				struct eh_bucket *bucket,
-				int slot_id) {
+			EH_SLOT_RECORD *record, 
+			EH_BUCKET_SLOT *s_record,
+			struct kv *kv, u64 hashed_key, 
+			struct eh_bucket *bucket,
+			int slot_id) {
 	EH_BUCKET_SLOT new_slot, tmp_slot;
 	struct eh_two_segment *two_seg;
 	EH_BUCKET_HEADER header;
@@ -286,14 +307,14 @@ append_eh_slot_next_segment :
 
 		if (unlikely(f1 == f2)) {
 			state = compare_replace_eh_slot(kv, tmp_slot, 
-									&bucket->kv[slot_id], new_slot);
+							&bucket->kv[slot_id], new_slot);
 
 			if (state == REPLACED_SLOT)
 				return 0;
 
 			if (state == INVALID_SLOT) {
 				state = find_eh_free_slot(&record[1], &s_record[1], 
-										kv, hashed_key, bucket, depth);
+							kv, hashed_key, bucket, depth);
 
 				if (state == REPLACED_SLOT)
 					return 0;
@@ -339,9 +360,9 @@ append_eh_no_free_slot :
 
 __attribute__((always_inline))
 static int append_eh_slot(
-			EH_SLOT_RECORD *record, 
-			EH_BUCKET_SLOT *s_record,
-			struct kv *kv, u64 hashed_key) {
+		EH_SLOT_RECORD *record, 
+		EH_BUCKET_SLOT *s_record,
+		struct kv *kv, u64 hashed_key) {
 	EH_BUCKET_SLOT *slot;
 	struct eh_bucket *bucket = (struct eh_bucket *)eh_record_bucket(record[0]);
 	int id = eh_record_id(record[0]);
@@ -422,7 +443,11 @@ put_eh_next_seg_kv :
 
 				if (unlikely(state == INVALID_SLOT)) {
 					record_bucket_initial_traversal(&record[0]);
-					goto put_eh_seg_kv_no_matched;
+					next_seg = retrieve_eh_higher_segment(bucket, next_seg, 
+										hashed_key, l_depth);
+					bucket_id = eh_seg2_bucket_idx(hashed_key, ++l_depth);
+					cl = 0;
+					goto put_eh_next_seg_kv_ready;
 				}
 			}
 
@@ -473,15 +498,13 @@ int get_eh_seg_kv(
 	struct eh_two_segment *next_seg;
 	EH_BUCKET_HEADER header;
 	EH_BUCKET_SLOT slot;
-	struct kv *old_kv, *migrate_kv;
+	struct kv *old_kv;
 	u64 fingerprint;
 	int bucket_id, i, cl, id;
 
 	bucket_id = eh_seg_bucket_idx(hashed_key, l_depth);
 	bucket = &low_seg->bucket[bucket_id];
 	prefetch_eh_bucket_head(bucket);
-
-	migrate_kv = NULL;
 
 get_eh_next_seg_kv :
 	fingerprint = hashed_key_fingerprint16(hashed_key, l_depth);
@@ -492,7 +515,7 @@ get_eh_next_seg_kv :
 	cl = id = 0;
 
 	header = READ_ONCE(bucket->header);
-	next_seg = (struct eh_two_segment *)eh_next_high_seg(header);
+	next_seg = retrieve_eh_high_segment(header);
 	//acquire_fence();
 
 	if (unlikely(eh_seg_splited(header)))
@@ -515,8 +538,11 @@ get_eh_next_seg_kv :
 						return -1;
 
 					if (unlikely(eh_slot_invalid(slot))) {
-						migrate_kv = old_kv;
-						goto get_eh_seg_kv_no_matched;
+						next_seg = retrieve_eh_higher_segment(bucket, next_seg, 
+										hashed_key, l_depth);
+						bucket_id = eh_seg2_bucket_idx(hashed_key, ++l_depth);
+						cl = 0;
+						goto get_eh_next_seg_kv_ready;
 					}
 
 					copy_kv_val(kv, old_kv);
@@ -533,14 +559,8 @@ get_eh_next_seg_kv :
 	}
 
 get_eh_seg_kv_no_matched :
-	if (!next_seg || unlikely(eh_bucket_stayed(header))) {
-		if (unlikely(migrate_kv)) {
-			copy_kv_val(kv, migrate_kv);
-			return 0;
-		}
-
+	if (!next_seg || unlikely(eh_bucket_stayed(header)))
 		return -1;
-	}
 
 get_eh_next_seg_kv_ready :
 	if (cl != EH_PER_BUCKET_CACHELINE)
@@ -559,18 +579,15 @@ int delete_eh_seg_kv(
 		int l_depth) {
 	struct eh_bucket *bucket;
 	struct eh_two_segment *next_seg;
-	struct eh_four_segment *next_next_seg;
 	EH_BUCKET_HEADER header;
 	EH_BUCKET_SLOT slot;
 	enum eh_slot_state state;
 	u64 fingerprint;
-	int bucket_id, i, cl, id, migrated;
+	int bucket_id, i, cl, id;
 
 	bucket_id = eh_seg_bucket_idx(hashed_key, l_depth);
 	bucket = &low_seg->bucket[bucket_id];
 	prefetch_eh_bucket_head(bucket);
-
-	migrated = 0;
 
 delete_eh_next_seg_kv :
 	fingerprint = hashed_key_fingerprint16(hashed_key, l_depth);
@@ -581,7 +598,7 @@ delete_eh_next_seg_kv :
 	cl = id = 0;
 
 	header = READ_ONCE(bucket->header);
-	next_seg = (struct eh_two_segment *)eh_next_high_seg(header);
+	next_seg = retrieve_eh_high_segment(header);
 	//acquire_fence();
 
 	if (unlikely(eh_seg_splited(header)))
@@ -605,8 +622,11 @@ delete_eh_next_seg_kv :
 					return -1;
 
 				if (unlikely(state == INVALID_SLOT)) {
-					migrated = 1;
-					goto delete_eh_seg_kv_no_matched;
+					next_seg = retrieve_eh_higher_segment(bucket, next_seg, 
+										hashed_key, l_depth);
+					bucket_id = eh_seg2_bucket_idx(hashed_key, ++l_depth);
+					cl = 0;
+					goto delete_eh_next_seg_kv_ready;
 				}
 			}
 
@@ -619,28 +639,8 @@ delete_eh_next_seg_kv :
 	}
 
 delete_eh_seg_kv_no_matched :
-	if (!next_seg || unlikely(eh_bucket_stayed(header))) {
-		if (likely(migrated == 0))
-			return -1;
-		
-		header = READ_ONCE(bucket->header);
-		next_seg = (struct eh_two_segment *)eh_next_high_seg(header);
-	}
-
-	if (unlikely(migrated == 1)) {
-		int seg2_id = eh_seg2_id_in_seg4(hashed_key, l_depth);
-
-		header = READ_ONCE(next_seg->bucket[0].header);
-		next_next_seg = (struct eh_four_segment *)eh_next_high_seg(header);
-
-		bucket = &next_seg->bucket[bucket_id];
-		next_seg = &next_next_seg->two_seg[seg2_id];
-
-		bucket_id = eh_seg2_bucket_idx(hashed_key, ++l_depth);
-							
-		cl = 0;
-		migrated = 0;
-	}
+	if (!next_seg || unlikely(eh_bucket_stayed(header)))
+		return -1;
 
 delete_eh_next_seg_kv_ready :
 	if (cl != EH_PER_BUCKET_CACHELINE)
