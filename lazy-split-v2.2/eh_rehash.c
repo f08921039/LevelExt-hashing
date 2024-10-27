@@ -190,7 +190,7 @@ static int __further_migrate_eh_slot(
 	struct eh_bucket *bucket;
 	EH_BUCKET_HEADER header;
 	struct eh_split_context split;
-	int i, bucket_id, seg_id;
+	int slot_id, bucket_id, seg_id;
 
 #ifdef DHT_INTEGER
 	split.hashed_key = get_kv_prehash64(kv);
@@ -222,6 +222,7 @@ further_next_migrate_eh_slot :
 	header = READ_ONCE(bucket->header);
 
 	bucket_id = eh_seg2_bucket_idx(split.hashed_key, split.depth + 1);
+	slot_id = 0;
 
 	if (eh_seg_low(header) && likely(!eh_bucket_stayed(header)))
 		seg2 = (struct eh_two_segment *)eh_next_high_seg(header);
@@ -234,19 +235,21 @@ further_next_migrate_eh_slot :
 		if (seg2 == NULL) {
 			dest = split.dest_seg;
 			seg2 = &dest->two_seg[seg_id];
-			new_addr = &seg2->bucket[bucket_id].kv[0];
+			bucket = &seg2->bucket[bucket_id];
+			new_addr = &bucket->kv[0];
 			new_slot = *new_addr;
 			goto further_migrate_eh_slot_success;
 		}
 	}
 
+	bucket = &seg2->bucket[bucket_id];
+
+further_migrate_eh_slot_again :
 	fingerprint = hashed_key_fingerprint18(split.hashed_key, split.depth + 2);
 	new_slot = make_eh_ext_slot(fingerprint, kv);
 
-	bucket = &seg2->bucket[bucket_id];
-
-	for (i = 0; i < EH_SLOT_NUM_PER_BUCKET; ++i) {
-		new_addr = &bucket->kv[i];
+	for (; slot_id < EH_SLOT_NUM_PER_BUCKET; ++slot_id) {
+		new_addr = &bucket->kv[slot_id];
 		slot = READ_ONCE(*new_addr);
 
 		if (eh_slot_free(slot) && 
@@ -262,11 +265,21 @@ further_migrate_eh_slot_success :
 	slot = cas(slot_addr, slot_val, invalidate_eh_slot(slot_val));
 
 	if (unlikely(slot != slot_val)) {
+		if (eh_slot_deleted(slot)) {
+			WRITE_ONCE(*new_addr, INVALID_DELETED_EH_SLOT);
+
+			slot_val = clear_eh_delete_slot(slot_addr, slot);
+
+			if (eh_slot_invalid_deleted(slot_val))
+				return 0;
+
+			kv = (struct kv *)eh_slot_kv_addr(slot_val);
+			slot_id += 1;
+			goto further_migrate_eh_slot_again;
+		}
+		
 		slot_val = slot;
 		new_slot = replace_eh_slot_kv_addr(new_slot, eh_slot_kv_addr(slot));
-
-		if (eh_slot_deleted(slot))
-			new_slot = delete_eh_slot(new_slot);
 
 		WRITE_ONCE(*new_addr, new_slot);
 		goto further_migrate_eh_slot_success;
