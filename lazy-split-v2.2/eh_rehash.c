@@ -358,7 +358,11 @@ static int migrate_eh_undo_slot(
 			
 	for (i = 0; i < undo_count; ++i) {
 		slot_addr = &bucket->kv[undo_ind[i]];
-		slot_val = READ_ONCE(*slot_addr);
+		slot_val = clear_eh_delete_slot(slot_addr, READ_ONCE(*slot_addr));
+
+		if (unlikely(eh_slot_invalid_deleted(slot_val)))
+			continue;
+
 		d_id = eh_slot_fingerprint2(slot_val);
 
 		if (dest_ind[d_id] < EH_SLOT_NUM_PER_BUCKET && 
