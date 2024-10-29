@@ -50,9 +50,9 @@ void release_all_tls_context() {
                 free_node_page(tls->seg_prefault, EH_ALLOC_POOL_SIZE);//to dooooooo: need to revise
 
             if (tls->record_pool.pool != 0) {//to dooooooo: need to revise
-                u64 pool_page_addr = EXP_2(tls->record_pool.base_page, RECORD_PAGE_SHIFT);
-                u64 pool_page_size = EXP_2(tls->record_pool.page_num, RECORD_PAGE_SHIFT);
-                free_node_page(pool_page_addr, pool_page_size);
+                u64 pool_page_addr = MUL_2(tls->record_pool.base_page, RECORD_PAGE_SHIFT);
+                u64 pool_page_size = MUL_2(tls->record_pool.page_num, RECORD_PAGE_SHIFT);
+                free_node_page((void *)pool_page_addr, pool_page_size);
             }
         }
     }
@@ -205,15 +205,15 @@ static void *alloc_record_page() {
         if (unlikely(r_pool == NULL))
             return malloc_prefault_page_aligned(RECORD_PAGE_SIZE);
 
-        tls->record_pool.page_num = 1;
-        tls->record_pool.base_page = DIV_2((uintptr_t)r_pool, RECORD_PAGE_SHIFT);
+        tls_context->record_pool.page_num = 1;
+        tls_context->record_pool.base_page = DIV_2((uintptr_t)r_pool, RECORD_PAGE_SHIFT);
 
         return r_pool;
     }
 
-    tls->record_pool.page_num = pool_page_num + 1;
+    tls_context->record_pool.page_num = pool_page_num + 1;
 
-    r_pool = (void *)EXP_2(pool_page_base + pool_page_num, RECORD_PAGE_SHIFT);
+    r_pool = (void *)MUL_2(pool_page_base + pool_page_num, RECORD_PAGE_SHIFT);
     return r_pool;
 }
 
