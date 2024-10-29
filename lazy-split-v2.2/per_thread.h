@@ -47,6 +47,14 @@ struct record_page {
     struct record_page *next;
 };
 
+#define RECORD_POOL_SIZE    EXP_2(32)
+#define MAX_RECOED_PAGE_IN_POOL    (RECORD_POOL_SIZE / RECORD_PAGE_SIZE)
+
+typedef struct record_page_pool {
+    u64 base_page : 36;
+    u64 page_num : 28;
+} RECORD_POOL;
+
 
 struct thread_paramater {
     int thread_id;
@@ -84,7 +92,7 @@ struct node_context {
 
 struct tls_context {
     u64 epoch;
-    u64 split_count;
+    RECORD_POOL record_pool;
     RECORD_POINTER lp_split_tail;
     RECORD_POINTER hp_split_tail;
     RECORD_POINTER chunk_reclaim_tail;
