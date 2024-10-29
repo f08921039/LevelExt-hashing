@@ -47,7 +47,13 @@ void release_all_tls_context() {
             }
 
             if (tls->seg_prefault)
-                free_node_page(tls->seg_prefault, EH_ALLOC_POOL_SIZE);
+                free_node_page(tls->seg_prefault, EH_ALLOC_POOL_SIZE);//to dooooooo: need to revise
+
+            if (tls->record_pool.pool != 0) {//to dooooooo: need to revise
+                u64 pool_page_addr = EXP_2(tls->record_pool.base_page, RECORD_PAGE_SHIFT);
+                u64 pool_page_size = EXP_2(tls->record_pool.page_num, RECORD_PAGE_SHIFT);
+                free_node_page(pool_page_addr, pool_page_size);
+            }
         }
     }
 }
@@ -56,6 +62,7 @@ int prepare_all_tls_context() {
     struct per_node_context *per_nc;
     struct tls_context *tls;
     struct record_page *r_page;
+    void *r_pool_base;
     size_t r_size;
     int i, j, n, mt, st, count, total_threads;
 
@@ -71,6 +78,7 @@ int prepare_all_tls_context() {
         for (j = 0; j < total_threads; ++j) {
             tls = &per_nc[i].max_tls_context[j];
 
+            tls->record_pool.pool = 0;
             tls->hp_split = INVALID_RECORD_POINTER;
             tls->lp_split = INVALID_RECORD_POINTER;
             tls->chunk_reclaim = INVALID_RECORD_POINTER;
@@ -127,6 +135,16 @@ int prepare_all_tls_context() {
                 release_all_tls_context();
                 return -1;
             }
+            
+            r_pool_base = alloc_node_page(RECORD_POOL_SIZE, i);
+
+            if (unlikely(r_pool_base == NULL)) {
+                release_all_tls_context();
+                return -1;
+            }
+            
+            tls->record_pool.page_num = 0;
+            tls->record_pool.base_page = DIV_2((uintptr_t)r_pool_base, RECORD_PAGE_SHIFT);
         }
     }
 
@@ -173,7 +191,31 @@ void init_tls_context(int nid, int tid) {
     memory_fence();
 }
 
+__attribute__((always_inline))
+static void *alloc_record_page() {
+    u64 pool_page_base, pool_page_num;
+    void *r_pool;
+    
+    pool_page_base = tls_context->record_pool.base_page;
+    pool_page_num = tls_context->record_pool.page_num;
 
+    if (unlikely(pool_page_num == MAX_RECOED_PAGE_IN_POOL)) {
+        r_pool = alloc_node_page(RECORD_POOL_SIZE, tls_node_id());
+
+        if (unlikely(r_pool == NULL))
+            return malloc_prefault_page_aligned(RECORD_PAGE_SIZE);
+
+        tls->record_pool.page_num = 1;
+        tls->record_pool.base_page = DIV_2((uintptr_t)r_pool, RECORD_PAGE_SHIFT);
+
+        return r_pool;
+    }
+
+    tls->record_pool.page_num = pool_page_num + 1;
+
+    r_pool = (void *)EXP_2(pool_page_base + pool_page_num, RECORD_PAGE_SHIFT);
+    return r_pool;
+}
 
 __attribute__((always_inline))
 static struct eh_split_entry *new_split_record(
@@ -186,7 +228,7 @@ static struct eh_split_entry *new_split_record(
     if (likely(ent_num != SPLIT_ENT_PER_RECORD_PAGE - 1))
         *new_pointer = make_record_pointer(page, ent_num + 1);
     else {
-        void *addr = malloc_prefault_page_aligned(RECORD_PAGE_SIZE);
+        void *addr = alloc_record_page();
 
         if (unlikely(addr == MAP_FAILED))
             return (struct eh_split_entry *)MAP_FAILED;
@@ -243,7 +285,7 @@ int reclaim_chunk(void *addr) {
     if (likely(ent_num != RECLAIM_ENT_PER_RECORD_PAGE - 1))
         r = make_record_pointer(page, ent_num + 1);
     else {
-        void *next_page = malloc_prefault_page_aligned(RECORD_PAGE_SIZE);
+        void *next_page = alloc_record_page();
 
         if (unlikely(next_page == MAP_FAILED))
             return -1;
@@ -268,7 +310,7 @@ int reclaim_page(void *addr, int shift) {
     if (likely(ent_num != RECLAIM_ENT_PER_RECORD_PAGE - 1))
         r = make_record_pointer(page, ent_num + 1);
     else {
-        void *next_page = malloc_prefault_page_aligned(RECORD_PAGE_SIZE);
+        void *next_page = alloc_record_page();
 
         if (unlikely(next_page == MAP_FAILED))
             return -1;
