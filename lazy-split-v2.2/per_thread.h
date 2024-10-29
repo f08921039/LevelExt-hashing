@@ -12,7 +12,8 @@ extern  "C" {
 
 #define THREADS_PER_SPLIT_THREAD    9
 
-#define RECORD_PAGE_SIZE    PAGE_SIZE
+#define RECORD_PAGE_SHIFT    PAGE_SHIFT
+#define RECORD_PAGE_SIZE    EXP_2(RECORD_PAGE_SHIFT)
 #define RECORD_PAGE_HEADER_SIZE 16
 
 #define SPLIT_ENT_PER_RECORD_PAGE   ((RECORD_PAGE_SIZE - RECORD_PAGE_HEADER_SIZE) / sizeof(struct eh_split_entry))
@@ -48,11 +49,14 @@ struct record_page {
 };
 
 #define RECORD_POOL_SIZE    EXP_2(32)
-#define MAX_RECOED_PAGE_IN_POOL    (RECORD_POOL_SIZE / RECORD_PAGE_SIZE)
+#define MAX_RECOED_PAGE_IN_POOL    DIV_2(RECORD_POOL_SIZE, RECORD_PAGE_SHIFT)
 
-typedef struct record_page_pool {
-    u64 base_page : 36;
-    u64 page_num : 28;
+typedef union record_page_pool {
+    struct {
+        u64 base_page : 36;
+        u64 page_num : 28;
+    };
+    u64 pool;
 } RECORD_POOL;
 
 
