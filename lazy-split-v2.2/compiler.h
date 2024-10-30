@@ -223,6 +223,7 @@ static inline void spin_fence() {
 #define cas_bool(ptr, old, new)	(__sync_bool_compare_and_swap((ptr), (old), (new)))
 
 #define atomic_add(ptr, inc)	(__atomic_fetch_add((ptr), (inc), __ATOMIC_SEQ_CST))
+#define atomic_sub(ptr, inc)	(__atomic_fetch_sub((ptr), (inc), __ATOMIC_SEQ_CST))
 
 /*low temporal locality*/
 static inline void prefech_r0(void *addr) {
