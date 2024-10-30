@@ -214,7 +214,7 @@ int dht_create_thread(struct dht_node_context *nc) {
         if (node_threads[n] > per_nc->max_work_thread_num)
             goto dht_create_thread_failed_front;
 
-        thread_waiting += node_threads[n];
+        atomic_add(&thread_waiting, node_threads[n]);
     }
 
     for (n = 0; n < nodes; ++n) {
@@ -342,13 +342,13 @@ int dht_add_thread(
     t_paramater->callback_fuction = func->start_routine;
     t_paramater->paramater = func->arg;
 
-    thread_waiting += 1;
+    atomic_add(&thread_waiting, 1);
 
     ret = create_binding_thread(&t_paramater->work_pthread_id, 
                     &dht_work_thread, t_paramater, cpu_array[w % cpus]);
 
     if (unlikely(ret)) {
-        thread_waiting -= 1;
+        atomic_sub(&thread_waiting, 1);
         dht_terminate_thread();
         free_cpu_array(cpu_array);
         free_cpu_bitmask(cpu_bitmask);
