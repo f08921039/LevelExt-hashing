@@ -11,10 +11,18 @@
 
 extern struct node_context node_context;
 
+static volatile int thread_waiting;
+static volatile int thread_ready;
+
 static void *dht_work_thread(void *paramater) {
     struct thread_paramater *t_paramater = (struct thread_paramater *)paramater;
 
     init_tls_context(t_paramater->node_id, t_paramater->thread_id);
+
+    atomic_add(&thread_ready, 1);
+
+    while (thread_waiting != thread_ready) {}
+
     return t_paramater->callback_fuction(t_paramater->paramater);
 }
 
@@ -80,6 +88,8 @@ int dht_init_structure(struct dht_node_context *nc) {
         per_nc[i].thread_paramater = NULL;
         per_nc[i].chunk_rp = per_nc[i].page_rp = NULL;
     }
+
+    thread_waiting = thread_ready = 0;
 
     //to doooooooooooooo: find the most appropraite nodes
 
@@ -197,6 +207,15 @@ int dht_create_thread(struct dht_node_context *nc) {
 
     nodes = node_context.node_num;
     gc_main = 0;
+
+    for (n = 0; n < nodes; ++n) {
+        per_nc = &node_context.all_node_context[n];
+
+        if (node_threads[n] > per_nc->max_work_thread_num)
+            goto dht_create_thread_failed_front;
+
+        thread_waiting += node_threads[n];
+    }
 
     for (n = 0; n < nodes; ++n) {
         per_nc = &node_context.all_node_context[n];
@@ -323,10 +342,13 @@ int dht_add_thread(
     t_paramater->callback_fuction = func->start_routine;
     t_paramater->paramater = func->arg;
 
+    thread_waiting += 1;
+
     ret = create_binding_thread(&t_paramater->work_pthread_id, 
                     &dht_work_thread, t_paramater, cpu_array[w % cpus]);
 
     if (unlikely(ret)) {
+        thread_waiting -= 1;
         dht_terminate_thread();
         free_cpu_array(cpu_array);
         free_cpu_bitmask(cpu_bitmask);
