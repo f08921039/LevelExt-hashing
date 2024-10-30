@@ -222,7 +222,7 @@ static inline void spin_fence() {
 #define cas(ptr, old, new)	(__sync_val_compare_and_swap((ptr), (old), (new)))
 #define cas_bool(ptr, old, new)	(__sync_bool_compare_and_swap((ptr), (old), (new)))
 
-#define atomic_add(ptr, inc)	(__atomic_fetch_add((ptr), (inc), __ATOMIC_RELAXED))
+#define atomic_add(ptr, inc)	(__atomic_fetch_add((ptr), (inc), __ATOMIC_SEQ_CST))
 
 /*low temporal locality*/
 static inline void prefech_r0(void *addr) {
@@ -354,17 +354,16 @@ static inline unsigned long sys_time_us() {
 
 
 static inline int create_default_thread(
-							pthread_t *restrict thread,
+				pthread_t *restrict thread,
                     		void *(*start_routine)(void *),
 		            		void *restrict arg) {
 	return pthread_create(thread, NULL, start_routine, arg);
 }
 
 static inline int create_binding_thread(
-							pthread_t *restrict thread,
+				pthread_t *restrict thread,
                     		void *(*start_routine)(void *),
-                    		void *restrict arg, 
-							int cpuid) {
+                    		void *restrict arg, int cpuid) {
 	pthread_attr_t p_attr;
 	cpu_set_t mask;
 	int ret;
@@ -386,10 +385,10 @@ static inline int create_binding_thread(
 }
 
 static inline int create_grouping_thread(
-							pthread_t *restrict thread,
+				pthread_t *restrict thread,
                     		void *(*start_routine)(void *),
                     		void *restrict arg, 
-							BITMASK *cpu_mask) {
+				BITMASK *cpu_mask) {
 	pthread_attr_t p_attr;
 	cpu_set_t mask;
 	int i, ret;
