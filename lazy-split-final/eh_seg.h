@@ -170,7 +170,7 @@ bool eh_seg_low(EH_BUCKET_HEADER header) {
 
 
 static inline 
-int eh_seg_urgent(EH_BUCKET_HEADER header) {
+bool eh_seg_urgent(EH_BUCKET_HEADER header) {
 	return !!(header & SHIFT(EH_URGENT_SEG_BIT));
 }
 
@@ -209,26 +209,26 @@ SPLIT_PRIORITY eh_split_entry_priority(EH_BUCKET_HEADER header) {
 }
 
 static inline 
-int eh_bucket_initial(EH_BUCKET_HEADER header) {
+bool eh_bucket_initial(EH_BUCKET_HEADER header) {
 	return header == INITIAL_EH_BUCKET_HEADER || 
 			header == INITIAL_EH_BUCKET_TOP_HEADER || 
 			header == INITIAL_EH_BUCKET_PREALLOC_HEADER;
 }
 
 static inline 
-int eh_bucket_no_normal_initial(EH_BUCKET_HEADER header) {
+bool eh_bucket_no_normal_initial(EH_BUCKET_HEADER header) {
 	return header == INITIAL_EH_BUCKET_TOP_HEADER || 
 			header == INITIAL_EH_BUCKET_PREALLOC_HEADER;
 }
 
 static inline 
-int eh_bucket_no_prealloc_initial(EH_BUCKET_HEADER header) {
+bool eh_bucket_no_prealloc_initial(EH_BUCKET_HEADER header) {
 	return header == INITIAL_EH_BUCKET_HEADER || 
 			header == INITIAL_EH_BUCKET_TOP_HEADER;
 }
 
 static inline 
-int eh_bucket_no_top_initial(EH_BUCKET_HEADER header) {
+bool eh_bucket_no_top_initial(EH_BUCKET_HEADER header) {
 	return header == INITIAL_EH_BUCKET_HEADER || 
 			header == INITIAL_EH_BUCKET_PREALLOC_HEADER;
 }
@@ -294,22 +294,22 @@ u64 hashed_key_fingerprint16(u64 hashed_key, int depth) {
 
 
 static inline 
-int eh_slot_free(EH_BUCKET_SLOT slot) {
+bool eh_slot_free(EH_BUCKET_SLOT slot) {
 	return slot == FREE_EH_SLOT;
 }
 
 static inline 
-int eh_slot_end(EH_BUCKET_SLOT slot) {
+bool eh_slot_end(EH_BUCKET_SLOT slot) {
 	return slot == END_EH_SLOT;
 }
 
 static inline 
-int eh_slot_invalid(EH_BUCKET_SLOT slot) {
+bool eh_slot_invalid(EH_BUCKET_SLOT slot) {
 	return (slot & (EH_SLOT_KV_ADDR_MASK | EH_SLOT_FLAG_MASK)) == EH_SLOT_DELETE_STAT;
 }
 
 static inline 
-int eh_slot_deleted(EH_BUCKET_SLOT slot) {
+bool eh_slot_deleted(EH_BUCKET_SLOT slot) {
 	return (slot & EH_SLOT_FLAG_MASK) == EH_SLOT_DELETE_STAT;
 }
 

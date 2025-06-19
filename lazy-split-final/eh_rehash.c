@@ -518,15 +518,18 @@ static int eh_bucket_migrate(
 		slot_addr = &target_bucket->kv[s_id];
 		slot_val = READ_ONCE(*slot_addr);
 
-		if (unlikely(eh_slot_invalid(slot_val)))
-			continue;
-
-		if (unlikely(eh_slot_free(slot_val))) {
+                if (unlikely(eh_slot_free(slot_val))) {
 			slot_val = cas(slot_addr, FREE_EH_SLOT, END_EH_SLOT);
 
 			if (likely(eh_slot_free(slot_val)))
 				break;
 		}
+		
+		if (unlikely(eh_slot_end(slot_val)))
+                        break;
+
+		if (unlikely(eh_slot_invalid(slot_val)))
+			continue;
 
 		slot_val = clear_eh_delete_slot(slot_addr, slot_val);
 
@@ -720,7 +723,7 @@ eh_segment_urgent_split_again :
 	}
 
 	bucket_l0 = &seg_l0->bucket[b_id];
-	bucket_l2 = &seg_l1->bucket[MUL_2(b_id, 2)];
+	bucket_l2 = &seg_l2->bucket[MUL_2(b_id, 2)];
 
 	right = DIV_2(b_id, EH_BUCKET_INDEX_BIT - 1);
 	header_l1 = set_eh_seg_low(&seg_l2[MUL_2(right, 1)]);
@@ -740,6 +743,8 @@ eh_segment_urgent_split_again :
 
 	if (b_id == 0 && !thread_split)
 		prefetch_part2_eh_segment_for_urgent_split(seg_l1, 0);
+		
+	bucket_l1 = &seg_l1->bucket[MUL_2(b_id, 1)];
 
 	header_l0s = set_eh_seg_splited(header_l0);
 
@@ -832,8 +837,9 @@ int eh_split(struct eh_split_context *split) {
 		else
 			goto eh_split_segment;
 	}
-
-	dir = base_slot_of_eh_dir(dir_head, 
+	
+	if (likely(g_depth > split->depth))
+	        dir = base_slot_of_eh_dir(dir_head, 
 					split->hashed_prefix, split->depth, g_depth);
 
 eh_split_segment :
@@ -846,7 +852,7 @@ eh_split_segment :
 	if (ret != 0)
 		return ret;
 
-	if (unlikely(g_depth == split->depth || split_eh_directory(dir, 
+	if (unlikely(dir == NULL || split_eh_directory(dir, 
 						split->dest_seg, split->depth, g_depth) == -1))
 		goto eh_split_for_next;
 

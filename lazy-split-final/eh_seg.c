@@ -573,7 +573,8 @@ re_boost_eh_split_entry :
 	old_header = cas(&seg->bucket[0].header, header, new_header);
 
 	if (unlikely(old_header != header)) {
-		invalidate_eh_split_entry(s_ent);
+	        if (s_ent)
+		        invalidate_eh_split_entry(s_ent);
 
 		header = old_header;
 		goto re_boost_eh_split_entry;
@@ -958,7 +959,9 @@ struct eh_segment *add_eh_new_segment_for_top(
 		header = old_header;
 
 		if (eh_seg_low(header)) {
-			invalidate_eh_split_entry(s_ent);
+		        if (s_ent)
+			    invalidate_eh_split_entry(s_ent);
+
 			free_page_aligned(next_seg, MUL_2(4, EH_SEGMENT_SIZE_BITS));
 			goto add_eh_existed_top_segment;
 		}
@@ -1162,7 +1165,7 @@ int insert_eh_seg_kv(
 	record_bucket_initial_traversal(&rec_pair);
 
 insert_eh_next_seg_kv :
-	eh_help_split();
+	//eh_help_split();
 
 	fingerprint = hashed_key_fingerprint(hashed_key, seg_context->depth, 18);
 	new_slot = make_eh_ext2_slot(fingerprint, kv);

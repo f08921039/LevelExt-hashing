@@ -8,7 +8,6 @@
 
 
 void *func(void *para) {
-	struct dht_kv_context *contex;
 	u64 i, ent = 51200000;
 	u64 val;
 	u64 t1, t2;
