@@ -39,7 +39,7 @@ re_modify_eh_split_entry :
 		invalidate_eh_split_entry(new_ent);
 		return;
 	} else
-		init_eh_split_entry(new_ent, target_seg, dest_seg, hashed_key, depth, type);
+		init_eh_split_entry(new_ent, target_seg, next_seg, hashed_key, depth, type);
 
 	if (type == NORMAL_SPLIT) {
 		new_header = set_eh_split_entry(new_ent, priority);

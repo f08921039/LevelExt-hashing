@@ -835,7 +835,8 @@ struct eh_segment *add_eh_new_segment_for_top(
 						u64 hashed_key) {
 	EH_BUCKET_HEADER header, new_header, old_header, next_header;
 	struct eh_bucket *new_bucket;
-	struct eh_split_entry ent, *s_ent, *old_s_ent;
+	struct eh_split_entry *s_ent, *old_s_ent;
+	uintptr_t target_ent;
 	struct eh_segment *buttom_seg, *seg, *next_seg, *target_seg, *dest_seg;
 	int bucket_id, depth, nid, right, right2;
 	bool head;
@@ -907,9 +908,9 @@ struct eh_segment *add_eh_new_segment_for_top(
 			depth -= 1;
 			right2 = eh_seg_id_in_seg2(hashed_key, depth);
 
-			ent.target = READ_ONCE(old_s_ent->target);
+			target_ent = READ_ONCE(old_s_ent->target);
 
-			target_seg = eh_split_target_seg(&ent);
+			target_seg = eh_s_ent_target_seg(target_ent);
 			dest_seg = seg - MUL_2(right2, 1);
 		} else {
 			target_seg = buttom_seg;
@@ -920,13 +921,13 @@ struct eh_segment *add_eh_new_segment_for_top(
 	if (priority == URGENT_PRIO)
 		next_header = INITIAL_EH_BUCKET_TOP_HEADER;
 	else {
+	        target_ent = make_eh_split_target_entry(target_seg, 0, 0, INVALID_SPLIT);
+	        WRITE_ONCE(s_ent->target, target_ent);
 		next_header = set_eh_split_entry(s_ent, THREAD2_PRIO);
-		init_tls_split_entry(target_seg, dest_seg, 
-							hashed_key, depth, URGENT_SPLIT);
 	}
 
 	next_seg->bucket[0].header = next_header;
-	next_seg->bucket[MUL_2(EH_BUCKET_NUM, 1)].header = next_header;
+	next_seg[2].bucket[0].header = next_header;
 
 	if (slot_val != FREE_EH_SLOT)
 		new_bucket->kv[0] = slot_val;
@@ -945,9 +946,20 @@ struct eh_segment *add_eh_new_segment_for_top(
 				
 				if (unlikely(upgrade_eh_split_entry(old_s_ent, target_seg)))
 					invalidate_eh_split_entry(s_ent);
-				else if (priority == THREAD_PRIO)
-					prefetch_eh_segment_for_urgent_split(target_seg, seg, dest_seg, 0);
-				else
+				else if (priority == THREAD_PRIO) {
+				        init_tls_split_entry(target_seg, dest_seg, hashed_key, depth, URGENT_SPLIT);
+				        
+				        memory_fence();
+				        header = READ_ONCE(dest_seg->bucket[0].header);
+				        
+				        if (likely(header == next_header))
+				            prefetch_eh_segment_for_urgent_split(target_seg, seg, dest_seg, 0);
+				        else {
+				            cas(&dest_seg[2].bucket[0].header, next_header, INITIAL_EH_BUCKET_TOP_HEADER);
+				            
+				            modify_tls_split_entry(target_seg, dest_seg);
+				        }
+				} else
 					init_eh_split_entry(s_ent, target_seg, dest_seg, hashed_key, depth, URGENT_SPLIT);
 			}
 
@@ -985,6 +997,9 @@ struct eh_segment *add_eh_new_segment_for_top(
 					free_page_aligned(next_seg, MUL_2(4, EH_SEGMENT_SIZE_BITS));
 					return (slot_val != FREE_EH_SLOT) ? (struct eh_segment *)MAP_FAILED : NULL;
 				}
+
+				target_seg = buttom_seg;
+			        dest_seg = next_seg;
 			}
 		} else {
 			if (s_ent) {
@@ -992,7 +1007,7 @@ struct eh_segment *add_eh_new_segment_for_top(
 				s_ent = NULL;
 
 				next_seg->bucket[0].header = INITIAL_EH_BUCKET_TOP_HEADER;
-				next_seg->bucket[MUL_2(EH_BUCKET_NUM, 1)].header = INITIAL_EH_BUCKET_TOP_HEADER;
+				next_seg[2].bucket[0].header = INITIAL_EH_BUCKET_TOP_HEADER;
 			}
 
 			if (eh_bucket_no_top_initial(header)) {
@@ -1093,6 +1108,7 @@ struct eh_segment *add_eh_new_segment(
 			ret_seg = NULL;
 
 			if (pos == BUTTOM_SEG) {
+			        seg_context->buttom_seg = seg_context->cur_seg;
 				seg_context->cur_seg = next_seg;
 				seg_context->depth = depth + 1;
 

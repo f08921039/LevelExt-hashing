@@ -228,7 +228,7 @@ static inline
 int dispossess_tls_split_context() {
     struct eh_split_context *s_context;
     struct eh_split_entry *s_ent;
-    EH_BUCKET_HEADER header;
+    EH_BUCKET_HEADER header, ori_header;
     uintptr_t target_ent;
     struct eh_segment *dest_seg, *target_seg;
     SPLIT_TYPE type;
@@ -253,6 +253,10 @@ int dispossess_tls_split_context() {
                             header == INITIAL_EH_BUCKET_TOP_HEADER)) {
         if (type == NORMAL_SPLIT)
             dest_seg = eh_next_high_seg(header);
+        else {
+            ori_header = set_eh_split_entry(s_ent, THREAD2_PRIO);
+            cas(&dest_seg[2].bucket[0].header, ori_header, INITIAL_EH_BUCKET_TOP_HEADER);
+        }
 
         modify_tls_split_entry(target_seg, dest_seg);
     }
