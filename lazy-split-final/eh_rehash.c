@@ -150,7 +150,7 @@ static int further_append_split_record(
 
 		new_prefix = hashed_prefix | SHIFT_OF(seg_id, PREHASH_KEY_BITS - 1 - depth);
 
-		init_eh_split_entry(s_ent, target_seg, dest_seg, hashed_prefix, depth + 1, type);
+		init_eh_split_entry(s_ent, target_seg, dest_seg, new_prefix, depth + 1, type);
 
 		if (type == NORMAL_SPLIT) {
 			memory_fence();
@@ -209,7 +209,7 @@ static struct eh_segment *add_eh_urgent_segment(
 		}
 
 		header = old_header;
-		free_page_aligned(new_seg, MUL_2(4, EH_SEGMENT_SIZE_BITS));
+		reclaim_page(new_seg, EH_SEGMENT_SIZE_BITS + 2);//free_page_aligned(new_seg, MUL_2(4, EH_SEGMENT_SIZE_BITS));
 	}
 
 	return new_seg;
@@ -455,6 +455,9 @@ static int __further_migrate_eh_slot(
 					cas_bool(new_addr, FREE_EH_SLOT, new_slot))
 				break;
 		}
+		
+		if (slot_id != EH_SLOT_NUM_PER_BUCKET)
+		        break;
 	}
 
 	while (1) {
@@ -746,6 +749,7 @@ eh_segment_urgent_split_again :
 		
 	bucket_l1 = &seg_l1->bucket[MUL_2(b_id, 1)];
 
+        header_l0 = set_eh_seg_low(seg_l1);
 	header_l0s = set_eh_seg_splited(header_l0);
 
 	for (; b_id < b_end; ++b_id) {

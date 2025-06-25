@@ -838,7 +838,7 @@ struct eh_segment *add_eh_new_segment_for_top(
 	struct eh_split_entry *s_ent, *old_s_ent;
 	uintptr_t target_ent;
 	struct eh_segment *buttom_seg, *seg, *next_seg, *target_seg, *dest_seg;
-	int bucket_id, depth, nid, right, right2;
+	int bucket_id, depth, g_depth, nid, right, right2;
 	bool head;
 	SPLIT_STATE state;
 	SEG_POSITION pos;
@@ -861,9 +861,13 @@ struct eh_segment *add_eh_new_segment_for_top(
 	else if (slot_val == FREE_EH_SLOT) {
 		state = tls_split_state();
 
-		if (state == MANY_SPLITS && 
-				!is_tls_help_split() && is_prefault_seg_enough(4))
-			priority = THREAD_PRIO;
+		if (state == MANY_SPLITS && !is_tls_help_split() 
+		                        && is_prefault_seg_enough(4)) {
+		        g_depth = get_eh_depth(hashed_key);
+		        
+		        if (g_depth > depth)
+			        priority = THREAD_PRIO;
+		}
 	} 
 
 	if (unlikely(eh_seg_low(header)))
