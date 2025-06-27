@@ -684,6 +684,11 @@ add_eh_segment_for_normal2urgent_split :
 		//to dooooooooooooo record in memory fail handle logging
 		return -1;
 	}
+	
+	if (b_id > DIV_2(EH_BUCKET_NUM, 1)) {
+	        header_l1 = set_eh_seg_low(&seg_l2[2]);
+	        WRITE_ONCE(seg_l1[1].bucket[0].header, header_l1);
+	}
 
 eh_segment_normal2urgent_split :
 	prefetch_part3_eh_segment_for_urgent_split(seg_l2, 0);
@@ -710,8 +715,6 @@ static int eh_segment_urgent_split(
 	seg_l2 = split->dest_seg;
 
 	thread_split = split->thread;
-
-eh_segment_urgent_split_again :
 	b_id = split->bucket_id;
 
 	if (thread_split)
@@ -724,33 +727,36 @@ eh_segment_urgent_split_again :
 
 		b_end = EH_BUCKET_NUM;
 	}
-
+	
 	bucket_l0 = &seg_l0->bucket[b_id];
+
+	if (split->inter_seg == NULL) {
+	        header_l0 = READ_ONCE(seg_l0->bucket[0].header);
+
+		seg_l1 = eh_next_high_seg(header_l0);
+		split->inter_seg = seg_l1;
+		
+		if (!thread_split) {
+		        while (unlikely(eh_seg_splited(header_l0))) {
+	                        split->bucket_id = ++b_id;
+	                        bucket_l0 += 1;
+	                        header_l0 = READ_ONCE(bucket_l0->header);
+	                }
+	
+		        prefetch_part2_eh_segment_for_urgent_split(seg_l1, b_id);
+		}
+	} else 
+		seg_l1 = split->inter_seg;
+
+	header_l0 = set_eh_seg_low(seg_l1);
+	header_l0s = set_eh_seg_splited(header_l0);
+
+        bucket_l1 = &seg_l1->bucket[MUL_2(b_id, 1)];
 	bucket_l2 = &seg_l2->bucket[MUL_2(b_id, 2)];
 
 	right = DIV_2(b_id, EH_BUCKET_INDEX_BIT - 1);
 	header_l1 = set_eh_seg_low(&seg_l2[MUL_2(right, 1)]);
 
-	header_l0 = READ_ONCE(bucket_l0->header);
-
-	if (split->inter_seg == NULL) {
-		seg_l1 = eh_next_high_seg(header_l0);
-		split->inter_seg = seg_l1;
-	} else 
-		seg_l1 = split->inter_seg;
-
-	if (unlikely(eh_seg_splited(header_l0))) {
-		split->bucket_id = b_id + 1;
-		goto eh_segment_urgent_split_again;
-	}
-
-	if (b_id == 0 && !thread_split)
-		prefetch_part2_eh_segment_for_urgent_split(seg_l1, 0);
-		
-	bucket_l1 = &seg_l1->bucket[MUL_2(b_id, 1)];
-
-        header_l0 = set_eh_seg_low(seg_l1);
-	header_l0s = set_eh_seg_splited(header_l0);
 
 	for (; b_id < b_end; ++b_id) {
 		if (b_id != EH_BUCKET_NUM - 1)
