@@ -431,6 +431,7 @@ static int __further_migrate_eh_slot(
 
 			right = eh_seg_id_in_seg2(hashed_prefix, depth + 1);
 			header = set_eh_seg_low(dest_seg + MUL_2(right, 1));
+			header = set_eh_four_seg(header);
 			WRITE_ONCE(dest_bucket->header, header);
 		}
 
@@ -756,6 +757,7 @@ static int eh_segment_urgent_split(
 
 	right = DIV_2(b_id, EH_BUCKET_INDEX_BIT - 1);
 	header_l1 = set_eh_seg_low(&seg_l2[MUL_2(right, 1)]);
+	header_l1 = set_eh_four_seg(header_l1);
 
 
 	for (; b_id < b_end; ++b_id) {

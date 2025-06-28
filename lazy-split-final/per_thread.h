@@ -10,7 +10,7 @@
 extern  "C" {
 #endif
 
-#define THREADS_PER_SPLIT_THREAD    36
+#define THREADS_PER_SPLIT_THREAD    9
 
 
 struct thread_paramater {
