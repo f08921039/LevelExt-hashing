@@ -739,6 +739,11 @@ static int eh_segment_urgent_split(
 		
 		if (!thread_split) {
 		        while (unlikely(eh_seg_splited(header_l0))) {
+		                if (b_id == DIV_2(EH_BUCKET_NUM, 1)) {
+			                header_l1 = set_eh_seg_low(&seg_l2[2]);
+			                WRITE_ONCE(seg_l1[1].bucket[0].header, header_l1);
+			        }
+	                        
 	                        split->bucket_id = ++b_id;
 	                        bucket_l0 += 1;
 	                        header_l0 = READ_ONCE(bucket_l0->header);
